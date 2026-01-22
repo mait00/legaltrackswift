@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Xcode",
+      "type": "lldb",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "sourceMap": {
+        "/Users/mait/legaltrackswift": "${workspaceFolder}"
+      }
+    }
+  ]
+}
+
+
+
+
+
+
+
+

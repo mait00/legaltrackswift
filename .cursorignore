@@ -1,0 +1,28 @@
+# Игнорируем файлы Xcode
+**/xcuserdata/
+**/xcshareddata/
+**/*.xcworkspace
+**/DerivedData/
+**/build/
+**/.DS_Store
+
+# Игнорируем временные файлы
+**/*.swp
+**/*.swo
+**/*~
+
+# Игнорируем зависимости
+**/node_modules/
+**/Pods/
+**/Carthage/
+
+# Игнорируем старый проект
+temp_legal_track/
+
+
+
+
+
+
+
+

@@ -1,0 +1,82 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Xcode Project",
+      "type": "shell",
+      "command": "xcodebuild",
+      "args": [
+        "-project",
+        "LegalTrack/LegalTrack.xcodeproj",
+        "-scheme",
+        "LegalTrack",
+        "-configuration",
+        "Debug",
+        "build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean Xcode Project",
+      "type": "shell",
+      "command": "xcodebuild",
+      "args": [
+        "-project",
+        "LegalTrack/LegalTrack.xcodeproj",
+        "-scheme",
+        "LegalTrack",
+        "clean"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run on Simulator",
+      "type": "shell",
+      "command": "xcodebuild",
+      "args": [
+        "-project",
+        "LegalTrack/LegalTrack.xcodeproj",
+        "-scheme",
+        "LegalTrack",
+        "-destination",
+        "platform=iOS Simulator,name=iPhone 15 Pro",
+        "build"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
+
+
+
+
+
+
+
+

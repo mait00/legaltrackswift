@@ -1,0 +1,4 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project LegalTrack/LegalTrack.xcodeproj -scheme LegalTrack -destination "platform=iOS Simulator,name=iPhone 17,OS=26.0" clean build
+
+2026-01-08 22:41:37.452 xcodebuild[94353:2646925] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.

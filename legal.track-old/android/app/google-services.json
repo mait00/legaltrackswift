@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "681359575488",
+    "project_id": "kaznaarbitr",
+    "storage_bucket": "kaznaarbitr.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:681359575488:android:0a36c1570d7e6d6946a025",
+        "android_client_info": {
+          "package_name": "com.arbitr2"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "681359575488-s3cr3o03tl2oh0bc2d237njtke7sjshq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDAVbsQYf2gpau4MZKwEnMPmfM2DpY_63Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "681359575488-s3cr3o03tl2oh0bc2d237njtke7sjshq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
