@@ -12,6 +12,7 @@ final class CacheManager {
     static let shared = CacheManager()
     
     private let fileManager = FileManager.default
+    private let ioQueue = DispatchQueue(label: "CacheManager.IO", qos: .utility)
     private let cacheDirectory: URL
     private let casesDirectory: URL
     private let pdfDirectory: URL
@@ -55,6 +56,13 @@ final class CacheManager {
             print("❌ [CacheManager] Failed to save cases: \(error)")
         }
     }
+
+    /// Асинхронно сохранить список дел в кэш, чтобы не блокировать main thread
+    func saveCasesAsync(_ cases: [LegalCase]) async {
+        await performIO { [weak self] in
+            self?.saveCases(cases)
+        }
+    }
     
     /// Загрузить список дел из кэша
     func loadCachedCases() -> [LegalCase]? {
@@ -80,6 +88,13 @@ final class CacheManager {
             return nil
         }
     }
+
+    /// Асинхронно загрузить список дел из кэша
+    func loadCachedCasesAsync() async -> [LegalCase]? {
+        await performIO { [weak self] in
+            self?.loadCachedCases()
+        }
+    }
     
     // MARK: - Case Detail Caching
     
@@ -96,6 +111,12 @@ final class CacheManager {
             print("💾 [CacheManager] Saved case detail \(caseId) to cache")
         } catch {
             print("❌ [CacheManager] Failed to save case detail: \(error)")
+        }
+    }
+
+    func saveCaseDetailAsync(_ detail: CaseDetailData, for caseId: Int) async {
+        await performIO { [weak self] in
+            self?.saveCaseDetail(detail, for: caseId)
         }
     }
     
@@ -122,6 +143,12 @@ final class CacheManager {
             return nil
         }
     }
+
+    func loadCachedCaseDetailAsync(for caseId: Int) async -> CaseDetailData? {
+        await performIO { [weak self] in
+            self?.loadCachedCaseDetail(for: caseId)
+        }
+    }
     
     // MARK: - Companies Caching
     
@@ -138,6 +165,12 @@ final class CacheManager {
             print("💾 [CacheManager] Saved \(companies.count) companies to cache")
         } catch {
             print("❌ [CacheManager] Failed to save companies: \(error)")
+        }
+    }
+
+    func saveCompaniesAsync(_ companies: [Company]) async {
+        await performIO { [weak self] in
+            self?.saveCompanies(companies)
         }
     }
     
@@ -162,6 +195,12 @@ final class CacheManager {
             return nil
         }
     }
+
+    func loadCachedCompaniesAsync() async -> [Company]? {
+        await performIO { [weak self] in
+            self?.loadCachedCompanies()
+        }
+    }
     
     // MARK: - Calendar Caching
     
@@ -178,6 +217,12 @@ final class CacheManager {
             print("💾 [CacheManager] Saved \(events.count) calendar events to cache")
         } catch {
             print("❌ [CacheManager] Failed to save calendar events: \(error)")
+        }
+    }
+
+    func saveCalendarEventsAsync(_ events: [CalendarEvent]) async {
+        await performIO { [weak self] in
+            self?.saveCalendarEvents(events)
         }
     }
     
@@ -202,6 +247,12 @@ final class CacheManager {
             return nil
         }
     }
+
+    func loadCachedCalendarEventsAsync() async -> [CalendarEvent]? {
+        await performIO { [weak self] in
+            self?.loadCachedCalendarEvents()
+        }
+    }
     
     // MARK: - Notifications Caching
     
@@ -218,6 +269,12 @@ final class CacheManager {
             print("💾 [CacheManager] Saved \(notifications.count) notifications (page \(page)) to cache")
         } catch {
             print("❌ [CacheManager] Failed to save notifications: \(error)")
+        }
+    }
+
+    func saveNotificationsAsync(_ notifications: [AppNotification], page: Int = 1) async {
+        await performIO { [weak self] in
+            self?.saveNotifications(notifications, page: page)
         }
     }
     
@@ -239,6 +296,12 @@ final class CacheManager {
         } catch {
             print("❌ [CacheManager] Failed to load notifications: \(error)")
             return nil
+        }
+    }
+
+    func loadCachedNotificationsAsync(page: Int = 1) async -> [AppNotification]? {
+        await performIO { [weak self] in
+            self?.loadCachedNotifications(page: page)
         }
     }
     
@@ -458,6 +521,12 @@ final class CacheManager {
         
         print("🗑️ [CacheManager] All cache cleared")
     }
+
+    func clearAllCacheAsync() async {
+        await performIO { [weak self] in
+            self?.clearAllCache()
+        }
+    }
     
     /// Удалить кэш для конкретного ключа
     func removeCache(forKey key: String) {
@@ -498,6 +567,16 @@ final class CacheManager {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: totalSize)
+    }
+
+    // MARK: - Async IO helper
+
+    private func performIO<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            ioQueue.async {
+                continuation.resume(returning: work())
+            }
+        }
     }
 }
 
@@ -547,4 +626,3 @@ final class NetworkMonitor: ObservableObject {
         return .unknown
     }
 }
-

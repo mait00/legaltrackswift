@@ -45,29 +45,13 @@ struct CalendarEvent: Codable, Identifiable {
     
     /// Парсинг даты из datetime_start
     var formattedDate: Date? {
-        // Парсим ISO формат "2026-01-20T09:30:00"
-        if let d = datetimeStart.toDate() {
+        if let d = CalendarEvent.isoDateTimeFormatter.date(from: datetimeStart) {
             return d
         }
-        
-        // Fallback: пробуем другие форматы
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        
-        let formats = [
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd"
-        ]
-        
-        for format in formats {
-            formatter.dateFormat = format
-            if let d = formatter.date(from: datetimeStart) {
-                return d
-            }
+        if let d = CalendarEvent.fallbackDateTimeFormatter.date(from: datetimeStart) {
+            return d
         }
-        
-        return nil
+        return CalendarEvent.shortDateFormatter.date(from: datetimeStart)
     }
     
     /// Заголовок события (номер дела)
@@ -83,10 +67,7 @@ struct CalendarEvent: Codable, Identifiable {
     /// Время события для отображения
     var displayTime: String {
         if let date = formattedDate {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "ru_RU")
-            formatter.dateFormat = "HH:mm"
-            let timeStr = formatter.string(from: date)
+            let timeStr = CalendarEvent.timeFormatter.string(from: date)
             return timeStr == "00:00" ? "" : timeStr
         }
         return ""
@@ -145,6 +126,34 @@ struct CalendarEvent: Codable, Identifiable {
     var caseTitle: String? {
         head
     }
+
+    private static let isoDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    private static let fallbackDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    private static let shortDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 }
 
 // MARK: - Calendar API Response
@@ -164,7 +173,9 @@ struct CalendarResponse: Codable {
 
 @MainActor
 final class CalendarViewModel: ObservableObject {
-    @Published var events: [CalendarEvent] = []
+    @Published var events: [CalendarEvent] = [] {
+        didSet { rebuildEventsByDay() }
+    }
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var selectedDate: Date = Date()
@@ -174,6 +185,7 @@ final class CalendarViewModel: ObservableObject {
     private let cacheManager = CacheManager.shared
     private let networkMonitor = NetworkMonitor.shared
     private let calendar = Calendar.current
+    private var eventsByDay: [Date: [CalendarEvent]] = [:]
     private var cancellables = Set<AnyCancellable>()
     
     init() {
@@ -206,7 +218,7 @@ final class CalendarViewModel: ObservableObject {
         errorMessage = nil
         
         // Сначала загружаем из кэша (если есть) - показываем сразу
-        if loadFromCache() {
+        if await loadFromCache() {
             print("📦 [Calendar] Showing cached events first")
         } else {
             isLoading = true
@@ -219,26 +231,10 @@ final class CalendarViewModel: ObservableObject {
         }
         
         do {
-            // Получаем сырые данные для кастомного декодирования
-            let urlString = "\(AppConstants.API.baseURL)\(APIEndpoint.getCalendarEvents.path)"
-            guard let url = URL(string: urlString) else {
-                throw APIError.invalidURL
-            }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            if let token = KeychainManager.shared.get(forKey: AppConstants.StorageKeys.authToken) {
-                request.setValue(token, forHTTPHeaderField: "Authorization")
-            }
-            
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = urlResponse as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw APIError.invalidResponse
-            }
+            let data = try await apiService.requestData(
+                endpoint: APIEndpoint.getCalendarEvents.path,
+                method: .get
+            )
             
             // Используем кастомный декодер без convertFromSnakeCase
             let decoder = JSONDecoder()
@@ -254,32 +250,24 @@ final class CalendarViewModel: ObservableObject {
                 return d1 < d2
             }
             
-            // Проверяем парсинг дат
-            let eventsWithValidDates = sortedEvents.filter { $0.formattedDate != nil }
-            let eventsWithInvalidDates = sortedEvents.filter { $0.formattedDate == nil }
-            
-            if !eventsWithInvalidDates.isEmpty {
-                print("⚠️ [Calendar] \(eventsWithInvalidDates.count) events have invalid dates:")
-                for event in eventsWithInvalidDates.prefix(5) {
-                    print("   - Event ID \(event.id): datetimeStart='\(event.datetimeStart)'")
-                }
-            }
-            
             events = sortedEvents
             
             // Кэшируем результат
-            cacheManager.saveCalendarEvents(events)
+            await cacheManager.saveCalendarEventsAsync(events)
             
             isLoading = false
             errorMessage = nil
-            print("✅ [Calendar] Loaded \(events.count) calendar events (\(eventsWithValidDates.count) with valid dates)")
+            print("✅ [Calendar] Loaded \(events.count) calendar events")
+        } catch is CancellationError {
+            isLoading = false
+            errorMessage = nil
         } catch {
             isLoading = false
             print("❌ [Calendar] Error loading calendar events: \(error)")
             
             // При ошибке, если кэша не было - показываем ошибку
             if events.isEmpty {
-                if loadFromCache() {
+                if await loadFromCache() {
                     errorMessage = nil
                     print("📦 [Calendar] Using cached events after error")
                 } else {
@@ -301,8 +289,8 @@ final class CalendarViewModel: ObservableObject {
     
     /// Загрузить из кэша
     @discardableResult
-    private func loadFromCache() -> Bool {
-        if let cachedEvents = cacheManager.loadCachedCalendarEvents() {
+    private func loadFromCache() async -> Bool {
+        if let cachedEvents = await cacheManager.loadCachedCalendarEventsAsync() {
             events = cachedEvents
             print("📦 Loaded \(cachedEvents.count) calendar events from cache")
             return true
@@ -312,22 +300,14 @@ final class CalendarViewModel: ObservableObject {
     
     /// События для выбранной даты
     var eventsForSelectedDate: [CalendarEvent] {
-        events.filter { event in
-            guard let eventDate = event.formattedDate else { return false }
-            return calendar.isDate(eventDate, inSameDayAs: selectedDate)
-        }.sorted { event1, event2 in
-            let time1 = event1.displayTime
-            let time2 = event2.displayTime
-            return time1 < time2
-        }
+        let dayKey = calendar.startOfDay(for: selectedDate)
+        return eventsByDay[dayKey] ?? []
     }
     
     /// Количество событий на конкретную дату
     func eventsCount(for date: Date) -> Int {
-        events.filter { event in
-            guard let eventDate = event.formattedDate else { return false }
-            return calendar.isDate(eventDate, inSameDayAs: date)
-        }.count
+        let dayKey = calendar.startOfDay(for: date)
+        return eventsByDay[dayKey]?.count ?? 0
     }
     
     /// Проверка наличия событий на дату
@@ -337,10 +317,8 @@ final class CalendarViewModel: ObservableObject {
     
     /// Получить события на дату
     func events(for date: Date) -> [CalendarEvent] {
-        events.filter { event in
-            guard let eventDate = event.formattedDate else { return false }
-            return calendar.isDate(eventDate, inSameDayAs: date)
-        }
+        let dayKey = calendar.startOfDay(for: date)
+        return eventsByDay[dayKey] ?? []
     }
     
     /// Типы событий на дату (для отображения индикаторов)
@@ -396,10 +374,7 @@ final class CalendarViewModel: ObservableObject {
     
     /// Название текущего месяца
     var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "LLLL yyyy"
-        return formatter.string(from: currentMonth).capitalized
+        CalendarViewModel.monthTitleFormatter.string(from: currentMonth).capitalized
     }
     
     /// Проверка, является ли дата сегодняшней
@@ -416,4 +391,24 @@ final class CalendarViewModel: ObservableObject {
     func isCurrentMonth(_ date: Date) -> Bool {
         calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
     }
+
+    private func rebuildEventsByDay() {
+        var grouped: [Date: [CalendarEvent]] = [:]
+        grouped.reserveCapacity(events.count)
+
+        for event in events {
+            guard let eventDate = event.formattedDate else { continue }
+            let dayKey = calendar.startOfDay(for: eventDate)
+            grouped[dayKey, default: []].append(event)
+        }
+
+        eventsByDay = grouped
+    }
+
+    private static let monthTitleFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter
+    }()
 }

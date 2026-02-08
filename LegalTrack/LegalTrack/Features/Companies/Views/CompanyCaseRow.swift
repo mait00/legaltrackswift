@@ -10,7 +10,7 @@ import SwiftUI
 struct CompanyCaseRow: View {
     let companyCase: CompanyCase
     let isInMonitoring: Bool
-    @State private var selectedCaseId: Int?
+    @Binding var selectedCaseId: Int?
     @State private var isAdding = false
     @State private var showError: String?
     @State private var addedSuccessfully = false
@@ -187,9 +187,6 @@ struct CompanyCaseRow: View {
         } message: {
             Text(showError ?? "")
         }
-        .navigationDestination(item: $selectedCaseId) { caseId in
-            CaseDetailView(caseId: caseId)
-        }
     }
     
     private func addToMonitoring() async {
@@ -234,9 +231,9 @@ struct CompanyCaseRow: View {
                     type: "Б",
                     meta: "дело синхронизировано"
                 ),
-                isInMonitoring: false
+                isInMonitoring: false,
+                selectedCaseId: .constant(nil)
             )
         }
     }
 }
-

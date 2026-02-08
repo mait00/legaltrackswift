@@ -16,12 +16,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Настройка уведомлений
         UNUserNotificationCenter.current().delegate = self
         
+        OneSignal.Debug.setLogLevel(.LL_NONE)
+        
         // Configure OneSignal SDK 5.x
         // Set your OneSignal App ID
         OneSignal.initialize(AppConstants.OneSignal.appId)
         
         // Observe push subscription changes to get the Player ID (userId)
         OneSignal.User.pushSubscription.addObserver(self)
+        PushNotificationService.shared.checkForPlayerID()
         
         // Prompt user for notification permission and register for APNs
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
@@ -29,16 +32,19 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                 print("❌ [Push] Permission error: \(error.localizedDescription)")
             }
             DispatchQueue.main.async {
-                UIApplication.shared.registerForRemoteNotifications()
                 if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                    OneSignal.User.pushSubscription.optIn()
                     print("✅ [Push] Permission granted, registered for remote notifications")
                 } else {
                     print("⚠️ [Push] Permission not granted")
                 }
+                self.logOneSignalState(context: "didFinishLaunching.requestAuthorization")
             }
         }
         
         print("✅ [OneSignal] SDK initialized with App ID: \(AppConstants.OneSignal.appId)")
+        logOneSignalState(context: "didFinishLaunching.afterInitialize")
         
         // Обработка уведомлений происходит через UNUserNotificationCenterDelegate методы ниже
         // Player ID будет отправлен на сервер через PushNotificationService после получения
@@ -55,6 +61,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         let token = tokenParts.joined()
         print("📱 [Push] Device token registered: \(token)")
         
+        // Явно передаем APNs token в OneSignal для надежности интеграции на физическом устройстве
+        OSNotificationsManager.didRegister(forRemoteNotifications: application, deviceToken: deviceToken)
+        
         // Provide APNs token to OneSignal (SDK 5 handles automatically, this is safe)
         // OneSignal.SetAPNSToken(deviceToken)  <-- This line removed
         
@@ -70,10 +79,12 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             
             // Проверяем Player ID через PushNotificationService
             PushNotificationService.shared.checkForPlayerID()
+            self.logOneSignalState(context: "didRegisterForRemoteNotifications +2s")
         }
     }
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        OSNotificationsManager.handleDidFailRegister(forRemoteNotification: error)
         print("❌ [Push] Failed to register: \(error.localizedDescription)")
     }
     
@@ -104,6 +115,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func onPushSubscriptionDidChange(state: OSPushSubscriptionChangedState) {
         // Retrieve the current push subscription and Player ID
         let subscription = OneSignal.User.pushSubscription
+        print("ℹ️ [OneSignal] Subscription changed: id=\(subscription.id ?? "nil"), token=\(subscription.token ?? "nil"), optedIn=\(subscription.optedIn)")
         if let userId = subscription.id, !userId.isEmpty {
             print("📱 [OneSignal] Player ID updated: \(userId)")
             Task { @MainActor in
@@ -113,5 +125,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             print("ℹ️ [OneSignal] Player ID not available yet")
         }
     }
+    
+    private func logOneSignalState(context: String) {
+        let subscription = OneSignal.User.pushSubscription
+        print("ℹ️ [OneSignal][\(context)] permission=\(OneSignal.Notifications.permission), canRequest=\(OneSignal.Notifications.canRequestPermission), optedIn=\(subscription.optedIn), subscriptionId=\(subscription.id ?? "nil"), token=\(subscription.token ?? "nil"), onesignalId=\(OneSignal.User.onesignalId ?? "nil")")
+    }
 }
-

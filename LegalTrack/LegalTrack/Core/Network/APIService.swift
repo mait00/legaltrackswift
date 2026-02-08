@@ -42,27 +42,68 @@ final class APIService {
         method: HTTPMethod = .get,
         body: Encodable? = nil
     ) async throws -> T {
-        // Обрабатываем URL с query параметрами
+        let data = try await requestData(endpoint: endpoint, method: method, body: body)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decode(T.self, from: data, using: decoder)
+    }
+
+    /// Выполнить запрос и вернуть сырые данные ответа
+    func requestData(
+        endpoint: String,
+        method: HTTPMethod = .get,
+        body: Encodable? = nil
+    ) async throws -> Data {
+        let request = try buildRequest(endpoint: endpoint, method: method, body: body)
+
+        do {
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            debugLog("🌐 API response status: \(httpResponse.statusCode) for \(request.url?.absoluteString ?? endpoint)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data) {
+                    throw APIError.serverError(message: errorResponse.message ?? "Ошибка сервера")
+                }
+                throw APIError.httpError(statusCode: httpResponse.statusCode)
+            }
+
+            return data
+        } catch let error as APIError {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func buildRequest(
+        endpoint: String,
+        method: HTTPMethod,
+        body: Encodable?
+    ) throws -> URLRequest {
         let urlString = "\(baseURL)\(endpoint)"
-        print("🌐 API Request: \(urlString)")
+        debugLog("🌐 API request: \(urlString)")
+
         guard let url = URL(string: urlString) else {
-            print("❌ Invalid URL: \(urlString)")
             throw APIError.invalidURL
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Добавляем токен авторизации если есть
+
         if let token = authToken {
             request.setValue(token, forHTTPHeaderField: "Authorization")
-            print("🔑 Using auth token: \(token.prefix(20))...")
-        } else {
-            print("⚠️ No auth token available")
         }
-        
-        // Добавляем тело запроса если есть
+
         if let body = body {
             do {
                 request.httpBody = try JSONEncoder().encode(body)
@@ -70,60 +111,23 @@ final class APIService {
                 throw APIError.encodingError
             }
         }
-        
+
+        return request
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data, using decoder: JSONDecoder) throws -> T {
         do {
-            let (data, response) = try await session.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw APIError.invalidResponse
-            }
-            
-            // Логируем ответ для отладки
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("API Response: \(responseString)")
-            }
-            
-            guard (200...299).contains(httpResponse.statusCode) else {
-                // Пытаемся декодировать ошибку
-                if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data) {
-                    throw APIError.serverError(message: errorResponse.message ?? "Ошибка сервера")
-                }
-                throw APIError.httpError(statusCode: httpResponse.statusCode)
-            }
-            
-            do {
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                
-                // Логируем полный JSON перед декодированием
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📦 Full JSON response: \(responseString)")
-                }
-                
-                let result = try decoder.decode(T.self, from: data)
-                print("✅ Successfully decoded response as \(String(describing: T.self))")
-                return result
-            } catch let decodingError {
-                print("❌ Decoding error: \(decodingError)")
-                print("❌ Error details: \(decodingError.localizedDescription)")
-                
-                // Пытаемся вывести сырые данные для отладки
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📦 Raw response (first 1000 chars): \(String(responseString.prefix(1000)))")
-                }
-                
-                // Пытаемся декодировать как словарь для отладки
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📦 JSON structure: \(json.keys.joined(separator: ", "))")
-                }
-                
-                throw APIError.decodingError
-            }
-        } catch let error as APIError {
-            throw error
+            return try decoder.decode(T.self, from: data)
         } catch {
-            throw APIError.networkError(error.localizedDescription)
+            debugLog("❌ Decoding failed for \(String(describing: T.self)): \(error.localizedDescription)")
+            throw APIError.decodingError
         }
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print(message)
+        #endif
     }
 }
 
@@ -171,4 +175,3 @@ enum APIError: LocalizedError {
         }
     }
 }
-

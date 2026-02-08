@@ -10,7 +10,12 @@ import Combine
 
 @MainActor
 final class NotificationsViewModel: ObservableObject {
-    @Published var notifications: [AppNotification] = []
+    @Published var notifications: [AppNotification] = [] {
+        didSet {
+            recalculateDerivedState()
+        }
+    }
+    @Published private(set) var groupedNotifications: [(date: String, notifications: [AppNotification])] = []
     @Published var unreadCount: Int = 0
     @Published var isLoading = false
     @Published var isLoadingMore = false
@@ -62,7 +67,7 @@ final class NotificationsViewModel: ObservableObject {
         currentPage = 1
         
         // Сначала загружаем из кэша (если есть) - показываем сразу
-        if loadFromCache(page: 1) {
+        if await loadFromCache(page: 1) {
             print("📦 [Notifications] Showing cached notifications first")
         } else {
             isLoading = true
@@ -75,26 +80,10 @@ final class NotificationsViewModel: ObservableObject {
         }
         
         do {
-            // Получаем сырые данные для кастомного декодирования
-            let urlString = "\(AppConstants.API.baseURL)\(APIEndpoint.getNotifications.path)?page=1"
-            guard let url = URL(string: urlString) else {
-                throw APIError.invalidURL
-            }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            if let token = KeychainManager.shared.get(forKey: AppConstants.StorageKeys.authToken) {
-                request.setValue(token, forHTTPHeaderField: "Authorization")
-            }
-            
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = urlResponse as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw APIError.invalidResponse
-            }
+            let data = try await apiService.requestData(
+                endpoint: "\(APIEndpoint.getNotifications.path)?page=1",
+                method: .get
+            )
             
             // Используем кастомный декодер без convertFromSnakeCase
             let decoder = JSONDecoder()
@@ -106,21 +95,23 @@ final class NotificationsViewModel: ObservableObject {
             notifications = response.data
             totalPages = response.totalPages ?? 1
             currentPage = response.page ?? 1
-            unreadCount = notifications.filter { !$0.isRead }.count
             
             // Кэшируем результат
-            cacheManager.saveNotifications(notifications, page: 1)
+            await cacheManager.saveNotificationsAsync(notifications, page: 1)
             
             isLoading = false
             errorMessage = nil
             print("✅ [Notifications] Loaded \(notifications.count) notifications successfully")
+        } catch is CancellationError {
+            isLoading = false
+            errorMessage = nil
         } catch {
             isLoading = false
             print("❌ [Notifications] Error loading notifications: \(error)")
             
             // При ошибке, если кэша не было - показываем ошибку
             if notifications.isEmpty {
-                if loadFromCache(page: 1) {
+                if await loadFromCache(page: 1) {
                     errorMessage = nil
                     print("📦 [Notifications] Using cached notifications after error")
                 } else {
@@ -141,11 +132,10 @@ final class NotificationsViewModel: ObservableObject {
     
     /// Загрузить из кэша
     @discardableResult
-    private func loadFromCache(page: Int) -> Bool {
-        if let cachedNotifications = cacheManager.loadCachedNotifications(page: page) {
+    private func loadFromCache(page: Int) async -> Bool {
+        if let cachedNotifications = await cacheManager.loadCachedNotificationsAsync(page: page) {
             if page == 1 {
                 notifications = cachedNotifications
-                unreadCount = notifications.filter { !$0.isRead }.count
             } else {
                 notifications.append(contentsOf: cachedNotifications)
             }
@@ -176,26 +166,10 @@ final class NotificationsViewModel: ObservableObject {
         let nextPage = currentPage + 1
         
         do {
-            // Получаем сырые данные для кастомного декодирования
-            let urlString = "\(AppConstants.API.baseURL)\(APIEndpoint.getNotifications.path)?page=\(nextPage)"
-            guard let url = URL(string: urlString) else {
-                throw APIError.invalidURL
-            }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            if let token = KeychainManager.shared.get(forKey: AppConstants.StorageKeys.authToken) {
-                request.setValue(token, forHTTPHeaderField: "Authorization")
-            }
-            
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = urlResponse as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw APIError.invalidResponse
-            }
+            let data = try await apiService.requestData(
+                endpoint: "\(APIEndpoint.getNotifications.path)?page=\(nextPage)",
+                method: .get
+            )
             
             // Используем кастомный декодер без convertFromSnakeCase
             let decoder = JSONDecoder()
@@ -205,9 +179,11 @@ final class NotificationsViewModel: ObservableObject {
             notifications.append(contentsOf: response.data)
             totalPages = response.totalPages ?? totalPages
             currentPage = response.page ?? nextPage
-            unreadCount = notifications.filter { !$0.isRead }.count
+            await cacheManager.saveNotificationsAsync(response.data, page: nextPage)
             isLoadingMore = false
             print("✅ [Notifications] Total notifications: \(notifications.count)")
+        } catch is CancellationError {
+            isLoadingMore = false
         } catch {
             isLoadingMore = false
             print("❌ [Notifications] Error loading more notifications: \(error)")
@@ -225,7 +201,6 @@ final class NotificationsViewModel: ObservableObject {
         updatedNotification.isRead = true
         
         notifications[index] = updatedNotification
-        unreadCount = max(0, unreadCount - 1)
     }
     
     /// Отметить все как прочитанные
@@ -235,7 +210,6 @@ final class NotificationsViewModel: ObservableObject {
             updated.isRead = true
             return updated
         }
-        unreadCount = 0
     }
     
     /// Получить иконку для типа уведомления
@@ -256,5 +230,15 @@ final class NotificationsViewModel: ObservableObject {
         case .caseType:
             return "blue"
         }
+    }
+
+    private func recalculateDerivedState() {
+        unreadCount = notifications.reduce(into: 0) { count, notification in
+            if !notification.isRead { count += 1 }
+        }
+
+        let grouped = Dictionary(grouping: notifications) { $0.meta }
+        groupedNotifications = grouped.map { (date: $0.key, notifications: $0.value) }
+            .sorted { $0.date > $1.date }
     }
 }

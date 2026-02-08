@@ -25,7 +25,7 @@ final class CaseDetailViewModel: ObservableObject {
         isFromCache = false
         
         // Сначала загружаем из кэша (если есть) - показываем сразу
-        if loadFromCache(caseId: caseId) {
+        if await loadFromCache(caseId: caseId) {
             print("📦 [CaseDetail] Showing cached data first")
             // Не устанавливаем isLoading = false, чтобы показать индикатор обновления
         } else {
@@ -51,7 +51,7 @@ final class CaseDetailViewModel: ObservableObject {
             
             if let data = response.data {
                 // Кэшируем данные
-                cacheManager.saveCaseDetail(data, for: caseId)
+                await cacheManager.saveCaseDetailAsync(data, for: caseId)
                 
                 // Нормализуем данные
                 let normalized = NormalizedCaseDetail(from: data)
@@ -69,13 +69,16 @@ final class CaseDetailViewModel: ObservableObject {
             }
             
             isLoading = false
+        } catch is CancellationError {
+            isLoading = false
+            errorMessage = nil
         } catch {
             isLoading = false
             print("❌ [CaseDetail] Error: \(error)")
             
             // При ошибке, если кэша не было - показываем ошибку
             if caseDetail == nil {
-                if loadFromCache(caseId: caseId) {
+                if await loadFromCache(caseId: caseId) {
                     errorMessage = nil
                 } else {
                     errorMessage = error.localizedDescription
@@ -89,8 +92,8 @@ final class CaseDetailViewModel: ObservableObject {
     
     /// Загрузить из кэша
     @discardableResult
-    private func loadFromCache(caseId: Int) -> Bool {
-        if let cachedData = cacheManager.loadCachedCaseDetail(for: caseId) {
+    private func loadFromCache(caseId: Int) async -> Bool {
+        if let cachedData = await cacheManager.loadCachedCaseDetailAsync(for: caseId) {
             let normalized = NormalizedCaseDetail(from: cachedData)
             self.caseDetail = normalized
             self.isFromCache = true

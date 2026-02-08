@@ -7,6 +7,13 @@
 
 import Foundation
 
+private let isCaseModelVerboseLoggingEnabled = false
+
+private func caseModelDebugLog(_ message: @autoclosure () -> String) {
+    guard isCaseModelVerboseLoggingEnabled else { return }
+    print(message())
+}
+
 /// Универсальный тип для декодирования любых JSON значений
 struct AnyCodable: Codable {
     let value: Any
@@ -186,17 +193,17 @@ extension LegalCase: Codable {
         // Декодируем sidePl (автоматически конвертируется из side_pl через .convertFromSnakeCase)
         sidePl = try container.decodeIfPresent(String.self, forKey: .sidePl)
         if let sidePl = sidePl {
-            print("✅ [LegalCase] Decoded sidePl: '\(sidePl)' for case \(value ?? "unknown")")
+            caseModelDebugLog("✅ [LegalCase] Decoded sidePl: '\(sidePl)' for case \(value ?? "unknown")")
         } else {
-            print("⚠️ [LegalCase] sidePl is nil for case \(value ?? "unknown")")
+            caseModelDebugLog("⚠️ [LegalCase] sidePl is nil for case \(value ?? "unknown")")
         }
         
         // Декодируем sideDf (автоматически конвертируется из side_df через .convertFromSnakeCase)
         sideDf = try container.decodeIfPresent(CodableValue.self, forKey: .sideDf)
         if let sideDf = sideDf {
-            print("✅ [LegalCase] Decoded sideDf for case \(value ?? "unknown"): string='\(sideDf.stringValue ?? "nil")', arrayCount=\(sideDf.arrayValue?.count ?? 0)")
+            caseModelDebugLog("✅ [LegalCase] Decoded sideDf for case \(value ?? "unknown"): string='\(sideDf.stringValue ?? "nil")', arrayCount=\(sideDf.arrayValue?.count ?? 0)")
         } else {
-            print("⚠️ [LegalCase] sideDf is nil for case \(value ?? "unknown")")
+            caseModelDebugLog("⚠️ [LegalCase] sideDf is nil for case \(value ?? "unknown")")
         }
         
         courtName = try container.decodeIfPresent(String.self, forKey: .courtName)
@@ -376,7 +383,7 @@ struct CodableValue: Codable {
         if container.decodeNil() {
             stringValue = nil
             arrayValue = nil
-            print("✅ [CodableValue] Decoded as nil")
+            caseModelDebugLog("✅ [CodableValue] Decoded as nil")
             return
         }
         
@@ -384,7 +391,7 @@ struct CodableValue: Codable {
         if let string = try? container.decode(String.self) {
             stringValue = string
             arrayValue = nil
-            print("✅ [CodableValue] Decoded as String: '\(string)'")
+            caseModelDebugLog("✅ [CodableValue] Decoded as String: '\(string)'")
             return
         }
         
@@ -393,7 +400,7 @@ struct CodableValue: Codable {
         if let array = try? container.decode([SideDFItem].self) {
             arrayValue = array.isEmpty ? nil : array
             stringValue = nil
-            print("✅ [CodableValue] Decoded as Array: \(array.count) items")
+            caseModelDebugLog("✅ [CodableValue] Decoded as Array: \(array.count) items")
             return
         }
         
@@ -402,14 +409,14 @@ struct CodableValue: Codable {
             let items = array.map { $0.toSideDFItem() }
             arrayValue = items.isEmpty ? nil : items
             stringValue = nil
-            print("✅ [CodableValue] Decoded as FlexibleArray: \(items.count) items")
+            caseModelDebugLog("✅ [CodableValue] Decoded as FlexibleArray: \(items.count) items")
             return
         }
         
         // Если ничего не сработало, устанавливаем nil
         stringValue = nil
         arrayValue = nil
-        print("⚠️ [CodableValue] Could not decode value, setting to nil")
+        caseModelDebugLog("⚠️ [CodableValue] Could not decode value, setting to nil")
     }
 
     func encode(to encoder: Encoder) throws {
@@ -678,7 +685,7 @@ struct CaseDetailData: Codable {
                let dict = instancesValue.value as? [String: Any] {
                 instances = nil
                 instancesDict = dict
-                print("📋 [CaseDetailData] Decoded instances as dictionary (SOY case) with keys: \(dict.keys.joined(separator: ", "))")
+                caseModelDebugLog("📋 [CaseDetailData] Decoded instances as dictionary (SOY case) with keys: \(dict.keys.joined(separator: ", "))")
             } else {
                 instances = nil
                 instancesDict = nil
@@ -916,7 +923,7 @@ struct NormalizedDocument: Identifiable {
     var pdfURL: String? {
         // Если url уже полный - возвращаем его
         if let url = url, url.hasPrefix("http") {
-            print("📄 [PDF URL] Using direct URL: \(url)")
+            caseModelDebugLog("📄 [PDF URL] Using direct URL: \(url)")
             return url
         }
         
@@ -927,14 +934,14 @@ struct NormalizedDocument: Identifiable {
             let encodedCaseId = caseId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? caseId
             let encodedDocId = docId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? docId
             let apiURL = "\(AppConstants.API.baseURL)/subs/get-pdf?case_id=\(encodedCaseId)&document_id=\(encodedDocId)"
-            print("📄 [PDF URL] Generated via API /subs/get-pdf: \(apiURL)")
+            caseModelDebugLog("📄 [PDF URL] Generated via API /subs/get-pdf: \(apiURL)")
             return apiURL
         }
         
         // Приоритет 2: Если FileName начинается с / - это путь к API
         if let fileName = url, !fileName.isEmpty, fileName.hasPrefix("/") {
             let apiURL = "\(AppConstants.API.baseURL)\(fileName)"
-            print("📄 [PDF URL] Generated from FileName path: \(apiURL)")
+            caseModelDebugLog("📄 [PDF URL] Generated from FileName path: \(apiURL)")
             return apiURL
         }
         
@@ -945,7 +952,7 @@ struct NormalizedDocument: Identifiable {
             let encodedCaseId = caseId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? caseId
             let encodedDocId = docId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? docId
             let kadURL = "https://kad.arbitr.ru/Document/Pdf/\(encodedCaseId)/\(encodedDocId)?isAddStamp=True"
-            print("📄 [PDF URL] Generated via kad.arbitr.ru (fallback): \(kadURL)")
+            caseModelDebugLog("📄 [PDF URL] Generated via kad.arbitr.ru (fallback): \(kadURL)")
             return kadURL
         }
         
@@ -955,15 +962,15 @@ struct NormalizedDocument: Identifiable {
             if fileName.contains("-") && fileName.count > 10 {
                 let encodedFileName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
                 let kadURL = "https://kad.arbitr.ru/Kad/PdfDocument/\(encodedFileName)"
-                print("📄 [PDF URL] Generated from FileName UUID via kad.arbitr.ru (fallback): \(kadURL)")
+                caseModelDebugLog("📄 [PDF URL] Generated from FileName UUID via kad.arbitr.ru (fallback): \(kadURL)")
                 return kadURL
             }
         }
         
-        print("⚠️ [PDF URL] Cannot generate URL - missing data")
-        print("   - caseIdKad: \(caseIdKad ?? "nil")")
-        print("   - documentId: \(documentId ?? "nil")")
-        print("   - url: \(url ?? "nil")")
+        caseModelDebugLog("⚠️ [PDF URL] Cannot generate URL - missing data")
+        caseModelDebugLog("   - caseIdKad: \(caseIdKad ?? "nil")")
+        caseModelDebugLog("   - documentId: \(documentId ?? "nil")")
+        caseModelDebugLog("   - url: \(url ?? "nil")")
         return nil
     }
 }
@@ -1084,7 +1091,7 @@ extension NormalizedCaseDetail {
                         let declarerNames = item.Declarers?.compactMap { $0.Organization } ?? []
                         
                         // Отладка PDF данных
-                        print("📄 [Document] Id=\(item.Id ?? "nil"), CaseId=\(item.CaseId ?? "nil"), FileName=\(item.FileName ?? "nil"), IsAct=\(item.IsAct ?? false)")
+                        caseModelDebugLog("📄 [Document] Id=\(item.Id ?? "nil"), CaseId=\(item.CaseId ?? "nil"), FileName=\(item.FileName ?? "nil"), IsAct=\(item.IsAct ?? false)")
                         
                         return NormalizedDocument(
                             date: item.DisplayDate?.toDate(),
@@ -1115,7 +1122,7 @@ extension NormalizedCaseDetail {
             }
         } else if let instancesDict = data.instancesDict {
             // Для СОЮ дел - instances это объект с ключами "История статусов", "Движение дела", "События", "Судебные акты"
-            print("📋 [NormalizedCaseDetail] Parsing SOY case instances as dictionary")
+            caseModelDebugLog("📋 [NormalizedCaseDetail] Parsing SOY case instances as dictionary")
             
             var soyInstances: [NormalizedInstance] = []
             
@@ -1217,7 +1224,7 @@ extension NormalizedCaseDetail {
             }
             
             self.instances = soyInstances
-            print("📋 [NormalizedCaseDetail] Parsed \(soyInstances.count) SOY instances with \(soyInstances.reduce(0) { $0 + $1.documents.count }) documents")
+            caseModelDebugLog("📋 [NormalizedCaseDetail] Parsed \(soyInstances.count) SOY instances with \(soyInstances.reduce(0) { $0 + $1.documents.count }) documents")
         } else {
             self.instances = []
         }
@@ -1225,4 +1232,3 @@ extension NormalizedCaseDetail {
         self.judicialActs = []
     }
 }
-

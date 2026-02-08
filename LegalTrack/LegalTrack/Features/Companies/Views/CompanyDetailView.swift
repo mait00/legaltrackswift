@@ -13,6 +13,7 @@ struct CompanyDetailView: View {
     @StateObject private var viewModel = CompanyDetailViewModel()
     @Environment(\.dismiss) private var dismiss
     @StateObject private var monitoringViewModel = MonitoringViewModel() // Для проверки наличия дел в мониторинге
+    @State private var selectedCaseId: Int?
     
     var body: some View {
         Group {
@@ -48,6 +49,9 @@ struct CompanyDetailView: View {
         .task {
             await viewModel.loadCompanyDetail(companyId: companyId)
             await monitoringViewModel.loadCases() // Загружаем список дел для проверки
+        }
+        .navigationDestination(item: $selectedCaseId) { caseId in
+            CaseDetailView(caseId: caseId)
         }
     }
     
@@ -250,7 +254,8 @@ struct CompanyDetailView: View {
                 ForEach(viewModel.cases) { companyCase in
                     CompanyCaseRow(
                         companyCase: companyCase,
-                        isInMonitoring: monitoringViewModel.cases.contains { $0.id == companyCase.id }
+                        isInMonitoring: monitoringViewModel.cases.contains { $0.id == companyCase.id },
+                        selectedCaseId: $selectedCaseId
                     )
                     
                     if companyCase.id != viewModel.cases.last?.id {
@@ -296,6 +301,5 @@ struct CompanyDetailView: View {
         CompanyDetailView(companyId: 1597)
     }
 }
-
 
 

@@ -23,7 +23,7 @@ final class CompaniesViewModel: ObservableObject {
         errorMessage = nil
         
         // Сначала загружаем из кэша (если есть) - показываем сразу
-        if loadFromCache() {
+        if await loadFromCache() {
             print("📦 [Companies] Showing cached companies first")
         } else {
             isLoading = true
@@ -50,7 +50,7 @@ final class CompaniesViewModel: ObservableObject {
             companies = response.companies
             
             // Кэшируем результат
-            cacheManager.saveCompanies(companies)
+            await cacheManager.saveCompaniesAsync(companies)
             
             print("🏢 ✅ Final companies count: \(companies.count)")
             
@@ -61,13 +61,15 @@ final class CompaniesViewModel: ObservableObject {
             }
             
             isLoading = false
+        } catch is CancellationError {
+            isLoading = false
         } catch {
             isLoading = false
             print("❌ Error loading companies: \(error)")
             
             // При ошибке, если кэша не было - показываем ошибку
             if companies.isEmpty {
-                if loadFromCache() {
+                if await loadFromCache() {
                     errorMessage = nil
                 } else {
                     errorMessage = error.localizedDescription
@@ -84,8 +86,8 @@ final class CompaniesViewModel: ObservableObject {
     
     /// Загрузить из кэша
     @discardableResult
-    private func loadFromCache() -> Bool {
-        if let cachedCompanies = cacheManager.loadCachedCompanies() {
+    private func loadFromCache() async -> Bool {
+        if let cachedCompanies = await cacheManager.loadCachedCompaniesAsync() {
             companies = cachedCompanies
             print("📦 Loaded \(cachedCompanies.count) companies from cache")
             return true
@@ -93,5 +95,3 @@ final class CompaniesViewModel: ObservableObject {
         return false
     }
 }
-
-

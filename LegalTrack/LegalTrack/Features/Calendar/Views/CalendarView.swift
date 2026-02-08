@@ -192,10 +192,7 @@ struct CalendarView: View {
     }
     
     private var selectedDateText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "d MMMM yyyy"
-        return formatter.string(from: viewModel.selectedDate)
+        CalendarView.selectedDateFormatter.string(from: viewModel.selectedDate)
     }
     
     // MARK: - Events List View
@@ -213,6 +210,15 @@ struct CalendarView: View {
             }
         }
     }
+}
+
+private extension CalendarView {
+    static let selectedDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "d MMMM yyyy"
+        return formatter
+    }()
 }
 
 // MARK: - Calendar Header View

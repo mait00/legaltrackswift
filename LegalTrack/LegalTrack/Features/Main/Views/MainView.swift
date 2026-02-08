@@ -10,8 +10,6 @@ import SwiftUI
 /// Экран дел (iOS 26 Liquid Glass дизайн)
 struct CasesView: View {
     @StateObject private var viewModel = MonitoringViewModel()
-    @State private var selectedFilter: CaseFilter = .all
-    @State private var searchText: String = ""
     @Binding var showAddCase: Bool
     
     @State private var pendingDeleteCase: LegalCase?
@@ -62,7 +60,7 @@ struct CasesView: View {
                     
                     // Фильтр по типу суда
                     Section {
-                        Picker("Тип суда", selection: $selectedFilter) {
+                        Picker("Тип суда", selection: $viewModel.selectedFilter) {
                             ForEach(CaseFilter.allCases, id: \.self) { filter in
                                 Text(filter.rawValue).tag(filter)
                             }
@@ -82,17 +80,17 @@ struct CasesView: View {
                         }
                         .padding(.vertical, 40)
                     }
-                } else if filteredCases.isEmpty {
+                } else if viewModel.filteredCases.isEmpty {
                     Section {
                         ContentUnavailableView(
                             "Нет дел",
                             systemImage: "folder",
-                            description: Text(selectedFilter == .all ? "Добавьте первое дело" : "Нет дел в этой категории")
+                            description: Text(viewModel.selectedFilter == .all ? "Добавьте первое дело" : "Нет дел в этой категории")
                         )
                     }
                 } else {
                     Section {
-                        ForEach(filteredCases) { legalCase in
+                        ForEach(viewModel.filteredCases) { legalCase in
                             NavigationLink(destination: CaseDetailView(legalCase: legalCase)) {
                                 CaseRow(legalCase: legalCase)
                             }
@@ -107,7 +105,7 @@ struct CasesView: View {
                         }
                     } header: {
                         HStack {
-                            Text("\(filteredCases.count) \(casesWord(filteredCases.count))")
+                            Text("\(viewModel.filteredCases.count) \(casesWord(viewModel.filteredCases.count))")
                             Spacer()
                         }
                     }
@@ -123,6 +121,7 @@ struct CasesView: View {
             .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
             .navigationTitle("Дела")
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $viewModel.searchText, prompt: "Поиск по делам")
             .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .refreshable {
                 await viewModel.loadCases()
@@ -157,50 +156,6 @@ struct CasesView: View {
         .task {
             await viewModel.loadCases()
         }
-    }
-    
-    private var filteredCases: [LegalCase] {
-        var cases = viewModel.cases
-        
-        // Фильтр по типу
-        switch selectedFilter {
-        case .all:
-            break
-        case .arbitration:
-            cases = cases.filter { $0.isSou != true }
-        case .general:
-            cases = cases.filter { $0.isSou == true }
-        }
-        
-        // Поиск
-        if !searchText.isEmpty {
-            cases = cases.filter { legalCase in
-                let searchLower = searchText.lowercased()
-                if let value = legalCase.value?.lowercased(), value.contains(searchLower) {
-                    return true
-                }
-                if let name = legalCase.name?.lowercased(), name.contains(searchLower) {
-                    return true
-                }
-                if let sidePl = legalCase.sidePl?.lowercased(), sidePl.contains(searchLower) {
-                    return true
-                }
-                return false
-            }
-        }
-        
-        // Сортировка: новые/только что добавленные (loading) сверху, затем по количеству новых документов
-        cases.sort { lhs, rhs in
-            let lhsLoading = lhs.status?.lowercased() == "loading"
-            let rhsLoading = rhs.status?.lowercased() == "loading"
-            if lhsLoading != rhsLoading { return lhsLoading && !rhsLoading }
-            let lNew = lhs.new ?? 0
-            let rNew = rhs.new ?? 0
-            if lNew != rNew { return lNew > rNew }
-            return (lhs.id) > (rhs.id)
-        }
-        
-        return cases
     }
     
     private func casesWord(_ count: Int) -> String {
@@ -356,20 +311,9 @@ struct CaseRow: View {
 
     @ViewBuilder
     private var participantsView: some View {
-        // Отладочная информация
-        let _ = print("🔍 [CaseRow] participantsView for case: \(legalCase.value ?? "Unknown")")
-        let _ = print("   sidePl: '\(legalCase.sidePl ?? "nil")'")
-        let _ = print("   sideDf exists: \(legalCase.sideDf != nil)")
-        if let sideDf = legalCase.sideDf {
-            let _ = print("   sideDf.stringValue: '\(sideDf.stringValue ?? "nil")'")
-            let _ = print("   sideDf.arrayValue count: \(sideDf.arrayValue?.count ?? 0)")
-        }
-        let _ = print("   isSou: \(isSou)")
-        
         // Для СОЮ дел - показываем все стороны без разделения
         if isSou {
             let allSides = parseAllSides()
-            let _ = print("   parseAllSides() returned \(allSides.count) sides: \(allSides)")
             
             if !allSides.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
@@ -395,9 +339,6 @@ struct CaseRow: View {
             // Для АС дел - показываем истцов и ответчиков раздельно
             let plaintiffs = parsePlaintiffs()
             let defendants = parseDefendants()
-            
-            let _ = print("   parsePlaintiffs() returned \(plaintiffs.count): \(plaintiffs)")
-            let _ = print("   parseDefendants() returned \(defendants.count): \(defendants)")
 
             if !plaintiffs.isEmpty || !defendants.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -500,11 +441,8 @@ struct CaseRow: View {
 
     private func parsePlaintiffs() -> [String] {
         guard let sidePl = legalCase.sidePl, !sidePl.isEmpty else {
-            print("⚠️ [CaseRow] parsePlaintiffs: sidePl is nil or empty for case \(legalCase.value ?? "unknown")")
             return []
         }
-
-        print("🔍 [CaseRow] parsePlaintiffs: sidePl='\(sidePl)' for case \(legalCase.value ?? "unknown")")
 
         // Разделяем по запятой или точке с запятой
         // Сначала пробуем точку с запятой, потом запятую
@@ -513,31 +451,25 @@ struct CaseRow: View {
             parts = sidePl.components(separatedBy: ";")
         } else if sidePl.contains(",") {
             parts = sidePl.components(separatedBy: ",")
-        } else {
-            // Если нет разделителей, возвращаем всю строку
-            let result = [sidePl.trimmingCharacters(in: .whitespaces)]
-            print("✅ [CaseRow] parsePlaintiffs: parsed \(result.count) plaintiffs: \(result)")
-            return result
-        }
+            } else {
+                // Если нет разделителей, возвращаем всю строку
+                return [sidePl.trimmingCharacters(in: .whitespaces)]
+            }
         
         let result = parts
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         
-        print("✅ [CaseRow] parsePlaintiffs: parsed \(result.count) plaintiffs: \(result)")
         return result
     }
 
     private func parseDefendants() -> [String] {
         guard let sideDf = legalCase.sideDf else {
-            print("⚠️ [CaseRow] parseDefendants: sideDf is nil for case \(legalCase.value ?? "unknown")")
             return []
         }
 
         // Если это строка
         if let stringValue = sideDf.stringValue, !stringValue.isEmpty {
-            print("🔍 [CaseRow] parseDefendants: sideDf is string='\(stringValue)' for case \(legalCase.value ?? "unknown")")
-            
             // Разделяем по запятой или точке с запятой
             let parts: [String]
             if stringValue.contains(";") {
@@ -546,32 +478,24 @@ struct CaseRow: View {
                 parts = stringValue.components(separatedBy: ",")
             } else {
                 // Если нет разделителей, возвращаем всю строку
-                let result = [stringValue.trimmingCharacters(in: .whitespaces)]
-                print("✅ [CaseRow] parseDefendants: parsed \(result.count) defendants: \(result)")
-                return result
+                return [stringValue.trimmingCharacters(in: .whitespaces)]
             }
             
             let result = parts
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
             
-            print("✅ [CaseRow] parseDefendants: parsed \(result.count) defendants: \(result)")
             return result
         }
 
         // Если это массив объектов
         if let arrayValue = sideDf.arrayValue {
-            print("🔍 [CaseRow] parseDefendants: sideDf is array with \(arrayValue.count) items for case \(legalCase.value ?? "unknown")")
-            let result = arrayValue
+            return arrayValue
                 .compactMap { $0.nameSide } // Фильтруем nil значения
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty } // Фильтруем пустые строки
-            
-            print("✅ [CaseRow] parseDefendants: parsed \(result.count) defendants from array: \(result)")
-            return result
         }
 
-        print("⚠️ [CaseRow] parseDefendants: sideDf is neither string nor array for case \(legalCase.value ?? "unknown")")
         return []
     }
 }
@@ -580,4 +504,3 @@ struct CaseRow: View {
     CasesView()
         .environmentObject(AppState())
 }
-

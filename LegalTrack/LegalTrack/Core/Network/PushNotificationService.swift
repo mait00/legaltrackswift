@@ -7,13 +7,13 @@
 
 import Foundation
 import UserNotifications
+import OneSignalFramework
 
 /// Сервис для работы с push уведомлениями
 @MainActor
 final class PushNotificationService: NSObject, ObservableObject {
     static let shared = PushNotificationService()
-    
-    private let oneSignalAppId = "ea4c198c-ce69-4724-bbc4-22528e581180"
+
     private let apiService = APIService.shared
     
     @Published var pushToken: String?
@@ -35,6 +35,21 @@ final class PushNotificationService: NSObject, ObservableObject {
     
     /// Проверить наличие Player ID в UserDefaults (OneSignal SDK 5.0 сохраняет его там)
     func checkForPlayerID() {
+        // Предпочитаем live-данные SDK 5.x
+        let liveSubscriptionId = OneSignal.User.pushSubscription.id
+        if let playerId = liveSubscriptionId, !playerId.isEmpty {
+            print("📱 [OneSignal] Found Player ID from SDK: \(playerId)")
+            setPushToken(playerId)
+            return
+        }
+
+        // Fallback на OneSignal user id
+        if let oneSignalId = OneSignal.User.onesignalId, !oneSignalId.isEmpty {
+            print("📱 [OneSignal] Found OneSignal user id: \(oneSignalId)")
+            setPushToken(oneSignalId)
+            return
+        }
+
         // OneSignal SDK 5.0 сохраняет Player ID в UserDefaults с ключом "ONESIGNAL_USERID"
         if let playerId = UserDefaults.standard.string(forKey: "ONESIGNAL_USERID"),
            !playerId.isEmpty {
@@ -250,4 +265,3 @@ final class PushNotificationService: NSObject, ObservableObject {
         print("📴 [Push] Unsubscribed from notifications")
     }
 }
-

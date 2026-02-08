@@ -10,22 +10,12 @@ import SwiftUI
 @main
 struct LegalTrackApp: App {
     @StateObject private var appState = AppState()
-    // Временно закомментировано до добавления AppDelegate в проект
-    // @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
-    init() {
-        // Инициализация push уведомлений (временно закомментировано)
-        // PushNotificationService.shared.initialize()
-    }
-    
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .onAppear {
-                    // Регистрируем для удаленных уведомлений
-                    UIApplication.shared.registerForRemoteNotifications()
-                }
         }
     }
 }
@@ -110,4 +100,3 @@ struct ContentView: View {
         }
     }
 }
-

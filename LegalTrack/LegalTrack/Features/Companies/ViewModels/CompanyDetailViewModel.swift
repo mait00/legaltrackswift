@@ -126,6 +126,9 @@ final class CompanyDetailViewModel: ObservableObject {
                     errorMessage = "Не удалось загрузить данные компании"
                 }
             }
+        } catch is CancellationError {
+            isLoading = false
+            errorMessage = nil
         } catch {
             isLoading = false
             print("❌ [CompanyDetail] Error: \(error)")
@@ -153,11 +156,12 @@ final class CompanyDetailViewModel: ObservableObject {
                 self.company = foundCompany
                 print("🏢 [CompanyDetail] Found company in subscriptions: \(foundCompany.name)")
             }
+        } catch is CancellationError {
+            return
         } catch {
             print("❌ [CompanyDetail] Failed to load from subscriptions: \(error)")
         }
     }
 }
-
 
 

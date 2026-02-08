@@ -42,7 +42,7 @@ struct NotificationsView: View {
                     }
                 } else {
                     // Группируем уведомления по датам
-                    ForEach(groupedNotifications, id: \.date) { group in
+                    ForEach(viewModel.groupedNotifications, id: \.date) { group in
                         Section {
                             ForEach(group.notifications, id: \.self) { notification in
                                 NotificationRow(
@@ -123,14 +123,6 @@ struct NotificationsView: View {
             await viewModel.loadNotifications()
         }
     }
-    
-    // Группировка уведомлений по датам
-    private var groupedNotifications: [(date: String, notifications: [AppNotification])] {
-        let grouped = Dictionary(grouping: viewModel.notifications) { $0.meta }
-        return grouped.map { (date: $0.key, notifications: $0.value) }
-            .sorted { $0.date > $1.date }
-    }
-    
     private func handleNotificationTap(_ notification: AppNotification) {
         Task {
             await viewModel.markAsRead(notification)

@@ -10,8 +10,17 @@ import Combine
 
 @MainActor
 final class MonitoringViewModel: ObservableObject {
-    @Published var cases: [LegalCase] = []
+    @Published var cases: [LegalCase] = [] {
+        didSet { recomputeFilteredCases() }
+    }
     @Published var companies: [Company] = []
+    @Published var selectedFilter: CaseFilter = .all {
+        didSet { recomputeFilteredCases() }
+    }
+    @Published var searchText: String = "" {
+        didSet { recomputeFilteredCases() }
+    }
+    @Published private(set) var filteredCases: [LegalCase] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var isOffline = false
@@ -30,7 +39,7 @@ final class MonitoringViewModel: ObservableObject {
                 self?.isOffline = !isConnected
                 if !isConnected {
                     // Если пропало соединение, загружаем из кэша
-                    self?.loadFromCache()
+                    Task { await self?.loadFromCache() }
                 }
             }
             .store(in: &cancellables)
@@ -56,6 +65,7 @@ final class MonitoringViewModel: ObservableObject {
     func clearData() {
         cases = []
         companies = []
+        filteredCases = []
         errorMessage = nil
         lastSyncTime = nil
         isLoading = false
@@ -67,7 +77,7 @@ final class MonitoringViewModel: ObservableObject {
         errorMessage = nil
         
         // Сначала загружаем из кэша (если есть) - показываем сразу
-        if loadFromCache() {
+        if await loadFromCache() {
             print("📦 [Monitoring] Showing cached cases first")
             // Не устанавливаем isLoading = false, чтобы показать индикатор обновления
         } else {
@@ -95,12 +105,14 @@ final class MonitoringViewModel: ObservableObject {
             companies = response.companies
             
             // Кэшируем результат
-            cacheManager.saveCases(cases)
-            cacheManager.saveCompanies(companies)
+            await cacheManager.saveCasesAsync(cases)
+            await cacheManager.saveCompaniesAsync(companies)
             lastSyncTime = Date()
             
             print("📋 ✅ Final cases count: \(cases.count)")
             
+            isLoading = false
+        } catch is CancellationError {
             isLoading = false
         } catch {
             isLoading = false
@@ -108,7 +120,7 @@ final class MonitoringViewModel: ObservableObject {
             
             // При ошибке, если кэша не было - показываем ошибку
             if cases.isEmpty {
-                if loadFromCache() {
+                if await loadFromCache() {
                     errorMessage = nil // Не показываем ошибку если есть кэш
                 } else {
                     errorMessage = error.localizedDescription
@@ -122,11 +134,11 @@ final class MonitoringViewModel: ObservableObject {
     
     /// Загрузить из кэша
     @discardableResult
-    private func loadFromCache() -> Bool {
+    private func loadFromCache() async -> Bool {
         var loaded = false
         
         // Загружаем дела
-        if let cachedCases = cacheManager.loadCachedCases() {
+        if let cachedCases = await cacheManager.loadCachedCasesAsync() {
             cases = cachedCases
             lastSyncTime = cacheManager.getLastSyncTime()
             print("📦 Loaded \(cachedCases.count) cases from cache")
@@ -134,7 +146,7 @@ final class MonitoringViewModel: ObservableObject {
         }
         
         // Загружаем компании
-        if let cachedCompanies = cacheManager.loadCachedCompanies() {
+        if let cachedCompanies = await cacheManager.loadCachedCompaniesAsync() {
             companies = cachedCompanies
             print("📦 Loaded \(cachedCompanies.count) companies from cache")
             loaded = true
@@ -153,18 +165,60 @@ final class MonitoringViewModel: ObservableObject {
             if response.success == true || response.status?.lowercased() == "success" {
                 if let idx = cases.firstIndex(where: { $0.id == id }) {
                     cases.remove(at: idx)
-                    cacheManager.saveCases(cases)
+                    await cacheManager.saveCasesAsync(cases)
                 }
             } else {
                 await MainActor.run {
                     self.errorMessage = response.message ?? "Не удалось удалить дело"
                 }
             }
+        } catch is CancellationError {
+            return
         } catch {
             await MainActor.run {
                 self.errorMessage = error.localizedDescription
             }
         }
     }
-}
 
+    private func recomputeFilteredCases() {
+        var result = cases
+
+        switch selectedFilter {
+        case .all:
+            break
+        case .arbitration:
+            result = result.filter { $0.isSou != true }
+        case .general:
+            result = result.filter { $0.isSou == true }
+        }
+
+        let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !normalizedQuery.isEmpty {
+            result = result.filter { legalCase in
+                if let value = legalCase.value?.lowercased(), value.contains(normalizedQuery) {
+                    return true
+                }
+                if let name = legalCase.name?.lowercased(), name.contains(normalizedQuery) {
+                    return true
+                }
+                if let sidePl = legalCase.sidePl?.lowercased(), sidePl.contains(normalizedQuery) {
+                    return true
+                }
+                return false
+            }
+        }
+
+        result.sort { lhs, rhs in
+            let lhsLoading = lhs.status?.lowercased() == "loading"
+            let rhsLoading = rhs.status?.lowercased() == "loading"
+            if lhsLoading != rhsLoading { return lhsLoading && !rhsLoading }
+            let lhsNew = lhs.new ?? 0
+            let rhsNew = rhs.new ?? 0
+            if lhsNew != rhsNew { return lhsNew > rhsNew }
+            return lhs.id > rhs.id
+        }
+
+        filteredCases = result
+    }
+}
