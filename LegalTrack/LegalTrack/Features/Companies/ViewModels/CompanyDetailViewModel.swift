@@ -95,6 +95,18 @@ final class CompanyDetailViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     
     private let apiService = APIService.shared
+
+    private static let iso8601WithFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
     
     /// Загрузить детали компании
     func loadCompanyDetail(companyId: Int) async {
@@ -114,7 +126,7 @@ final class CompanyDetailViewModel: ObservableObject {
             
             if let data = response.data {
                 self.company = data.company
-                self.cases = data.cases ?? []
+                self.cases = sortCompanyCases(data.cases ?? [])
                 print("🏢 [CompanyDetail] Company: \(data.company.name), cases: \(cases.count)")
                 isLoading = false
                 errorMessage = nil
@@ -162,6 +174,57 @@ final class CompanyDetailViewModel: ObservableObject {
             print("❌ [CompanyDetail] Failed to load from subscriptions: \(error)")
         }
     }
-}
 
+    private func sortCompanyCases(_ items: [CompanyCase]) -> [CompanyCase] {
+        items.sorted { a, b in
+            let da = companyCaseDate(a)
+            let db = companyCaseDate(b)
+            if da != db { return da > db }
+            return a.id > b.id
+        }
+    }
+
+    private func companyCaseDate(_ item: CompanyCase) -> Date {
+        if let meta = item.meta, let d = parseDate(meta) { return d }
+        if let date = item.date, let d = parseDate(date) { return d }
+        return .distantPast
+    }
+
+    private func parseDate(_ raw: String) -> Date? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return nil }
+
+        // dd.MM.yy / dd.MM.yyyy
+        if let d = parseDotDate(s) { return d }
+
+        if let d = Self.iso8601WithFrac.date(from: s) { return d }
+        if let d = Self.iso8601.date(from: s) { return d }
+        return nil
+    }
+
+    private func parseDotDate(_ s: String) -> Date? {
+        // dd.MM.yy
+        if let m = s.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yy>\d{2})$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yy = Int(m.yy) else { return nil }
+            return buildDate(year: 2000 + yy, month: mm, day: dd)
+        }
+        // dd.MM.yyyy
+        if let m = s.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yyyy>\d{4})$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yyyy = Int(m.yyyy) else { return nil }
+            return buildDate(year: yyyy, month: mm, day: dd)
+        }
+        return nil
+    }
+
+    private func buildDate(year: Int, month: Int, day: Int) -> Date? {
+        var comps = DateComponents()
+        comps.calendar = Calendar(identifier: .gregorian)
+        comps.timeZone = .current
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        comps.hour = 12
+        return comps.date
+    }
+}
 

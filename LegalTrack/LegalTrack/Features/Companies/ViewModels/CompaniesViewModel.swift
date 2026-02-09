@@ -17,6 +17,18 @@ final class CompaniesViewModel: ObservableObject {
     private let apiService = APIService.shared
     private let cacheManager = CacheManager.shared
     private let networkMonitor = NetworkMonitor.shared
+
+    private static let iso8601WithFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
     
     /// Загрузить компании
     func loadCompanies() async {
@@ -47,7 +59,7 @@ final class CompaniesViewModel: ObservableObject {
             print("🏢 Companies count: \(response.companies.count)")
             
             // Обновляем данные
-            companies = response.companies
+            companies = sortCompanies(response.companies)
             
             // Кэшируем результат
             await cacheManager.saveCompaniesAsync(companies)
@@ -88,10 +100,27 @@ final class CompaniesViewModel: ObservableObject {
     @discardableResult
     private func loadFromCache() async -> Bool {
         if let cachedCompanies = await cacheManager.loadCachedCompaniesAsync() {
-            companies = cachedCompanies
+            companies = sortCompanies(cachedCompanies)
             print("📦 Loaded \(cachedCompanies.count) companies from cache")
             return true
         }
         return false
+    }
+
+    private func sortCompanies(_ items: [Company]) -> [Company] {
+        items.sorted { a, b in
+            let da = createdAtDate(a.createdAt)
+            let db = createdAtDate(b.createdAt)
+            if da != db { return da > db }
+            // Fallback: id у API монотонно растет, как минимум стабилизирует порядок.
+            return a.id > b.id
+        }
+    }
+
+    private func createdAtDate(_ s: String?) -> Date {
+        guard let s else { return .distantPast }
+        if let d = Self.iso8601WithFrac.date(from: s) { return d }
+        if let d = Self.iso8601.date(from: s) { return d }
+        return .distantPast
     }
 }

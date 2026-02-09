@@ -13,12 +13,12 @@ struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @State private var isEditing = false
     @State private var showLogoutAlert = false
-    @State private var showNotificationsSheet = false
     
     var body: some View {
         NavigationStack {
             ZStack {
-                LiquidGlassBackground()
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
                 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -59,12 +59,9 @@ struct ProfileView: View {
                     .padding(.bottom, AppSpacing.xl)
                     .frame(maxWidth: .infinity)
                 }
-                .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-                .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
             }
             .navigationTitle("Профиль")
             .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -95,9 +92,6 @@ struct ProfileView: View {
             }
             .refreshable {
                 await viewModel.loadProfile()
-            }
-            .sheet(isPresented: $showNotificationsSheet) {
-                NotificationsView()
             }
         }
         .task {
@@ -147,7 +141,7 @@ struct ProfileView: View {
     
     private var userTypeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ТИП АККАУНТА")
+            Text("Тип аккаунта")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(AppColors.textSecondary)
                 .padding(.horizontal, 4)
@@ -184,7 +178,7 @@ struct ProfileView: View {
     
     private var profileInfoCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ЛИЧНЫЕ ДАННЫЕ")
+            Text("Личные данные")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(AppColors.textSecondary)
                 .padding(.horizontal, 4)
@@ -289,7 +283,7 @@ struct ProfileView: View {
     
     private var statsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("СТАТИСТИКА")
+            Text("Статистика")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(AppColors.textSecondary)
                 .padding(.horizontal, 4)
@@ -378,22 +372,12 @@ struct ProfileView: View {
     
     private var actionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ДЕЙСТВИЯ")
+            Text("Действия")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(AppColors.textSecondary)
                 .padding(.horizontal, 4)
             
             VStack(spacing: 0) {
-                ProfileActionRow(
-                    icon: "bell.badge",
-                    title: "Уведомления",
-                    color: .purple
-                ) {
-                    showNotificationsSheet = true
-                }
-                
-                Divider().padding(.leading, 56)
-                
                 ProfileActionRow(
                     icon: "questionmark.circle",
                     title: "Помощь",
@@ -600,5 +584,3 @@ struct StatBox: View {
     ProfileView()
         .environmentObject(AppState())
 }
-
-

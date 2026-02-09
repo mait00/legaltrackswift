@@ -5,21 +5,20 @@ struct LegacySearchView: View {
 
     var body: some View {
         ZStack {
-            LiquidGlassBackground()
-                .edgesIgnoringSafeArea(.all)
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
 
             VStack(spacing: 20) {
                 TextField("Search", text: $searchText)
                     .padding()
-                    .background(Color.white.opacity(0.2))
+                    .background(Color(.secondarySystemBackground))
                     .cornerRadius(10)
-                    .foregroundColor(.white)
                     .padding(.horizontal)
 
                 Spacer()
 
                 Text("Search results will appear here")
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundStyle(.secondary)
                     .font(.headline)
 
                 Spacer()

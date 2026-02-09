@@ -18,8 +18,11 @@ final class APIService {
     private init() {
         self.baseURL = AppConstants.API.baseURL
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = AppConstants.API.timeout
-        configuration.timeoutIntervalForResource = AppConstants.API.timeout
+        // Fail fast on unstable mobile networks to avoid long UI hangs.
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = min(AppConstants.API.timeout, 12)
+        configuration.timeoutIntervalForResource = min(AppConstants.API.timeout, 20)
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: configuration)
         
         // Загружаем токен из Keychain
@@ -75,6 +78,15 @@ final class APIService {
             return data
         } catch let error as APIError {
             throw error
+        } catch let urlError as URLError {
+            switch urlError.code {
+            case .timedOut:
+                throw APIError.networkError("Превышено время ожидания. Проверьте интернет соединение")
+            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost:
+                throw APIError.networkError("Нет соединения с сервером. Проверьте интернет")
+            default:
+                throw APIError.networkError(urlError.localizedDescription)
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -98,6 +110,7 @@ final class APIService {
 
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
+        request.timeoutInterval = min(AppConstants.API.timeout, 12)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if let token = authToken {

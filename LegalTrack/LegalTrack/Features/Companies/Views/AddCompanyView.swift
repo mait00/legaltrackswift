@@ -16,7 +16,8 @@ struct AddCompanyView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LiquidGlassBackground()
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
                 
                 ScrollView {
                     VStack(spacing: 24) {
@@ -161,7 +162,6 @@ struct AddCompanyView: View {
             }
             .navigationTitle("Добавить компанию")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена") {
@@ -353,5 +353,3 @@ struct SelectedCompanyCard: View {
 #Preview {
     AddCompanyView()
 }
-
-

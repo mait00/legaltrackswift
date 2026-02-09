@@ -55,8 +55,10 @@ final class AppState: ObservableObject {
         isAuthenticated = true
         
         // Очищаем кеш перед входом нового пользователя, чтобы не показывать старые данные
-        CacheManager.shared.clearAllCache()
-        print("🗑️ [AppState] Cache cleared on user login")
+        Task {
+            await CacheManager.shared.clearAllCacheAsync()
+            print("🗑️ [AppState] Cache cleared on user login")
+        }
         
         // Уведомляем о входе пользователя (для очистки данных в ViewModels)
         NotificationCenter.default.post(name: NSNotification.Name("UserDidLogin"), object: nil)
@@ -75,14 +77,19 @@ final class AppState: ObservableObject {
         apiService.setToken(nil)
         
         // Очищаем кеш при выходе пользователя
-        CacheManager.shared.clearAllCache()
-        print("🗑️ [AppState] Cache cleared on user logout")
+        Task {
+            await CacheManager.shared.clearAllCacheAsync()
+            print("🗑️ [AppState] Cache cleared on user logout")
+        }
         
         // Уведомляем о выходе пользователя (для очистки данных в ViewModels)
         NotificationCenter.default.post(name: NSNotification.Name("UserDidLogout"), object: nil)
         
-        keychainManager.clearAll()
-        userDefaultsManager.clearAll()
+        // Вынесено в фон: может быть ощутимо на больших доменах UserDefaults/Keychain.
+        Task.detached(priority: .utility) { [keychainManager, userDefaultsManager] in
+            keychainManager.clearAll()
+            userDefaultsManager.clearAll()
+        }
     }
 }
 
@@ -91,6 +98,20 @@ struct ContentView: View {
     @EnvironmentObject var appState: AppState
     
     var body: some View {
+        #if DEBUG
+        if let urlString = ProcessInfo.processInfo.environment["LT_DEBUG_PDF_URL"],
+           let url = URL(string: urlString) {
+            SafariPDFScreen(url: url, title: "Debug PDF")
+        } else {
+            Group {
+                if appState.isAuthenticated {
+                    MainTabView()
+                } else {
+                    AuthView()
+                }
+            }
+        }
+        #else
         Group {
             if appState.isAuthenticated {
                 MainTabView()
@@ -98,5 +119,6 @@ struct ContentView: View {
                 AuthView()
             }
         }
+        #endif
     }
 }

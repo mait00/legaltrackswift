@@ -801,6 +801,7 @@ struct InstanceItem: Codable {
     let Date: String?
     let DocumentTypeName: String?
     let AdditionalInfo: String?
+    let Content: String?
     let DecisionTypeName: String?
     let FileName: String?
     let Judges: [JudgeInfo]?
@@ -909,6 +910,7 @@ struct NormalizedDocument: Identifiable {
     let publishDate: String? // Дата публикации
     let type: String?
     let description: String?
+    let content: String?
     let judges: [String]
     let declarers: [String] // Организации-подателей
     let decision: String?
@@ -919,15 +921,51 @@ struct NormalizedDocument: Identifiable {
     let documentId: String? // ID документа для формирования URL
     let caseIdKad: String? // CaseId от kad.arbitr.ru
     
-    /// Полный URL для скачивания PDF (приоритет: API /subs/get-pdf)
+    /// Полный URL для скачивания PDF
     var pdfURL: String? {
+        // Если url уже полный kad.arbitr.ru - возвращаем как есть.
+        if let url = url, url.hasPrefix("http"), url.contains("kad.arbitr.ru/Document/Pdf") {
+            caseModelDebugLog("📄 [PDF URL] Using direct kad.arbitr.ru URL: \(url)")
+            return url
+        }
+
+        // Temporary switch: prefer direct kad.arbitr.ru over our proxy endpoints.
+        let rawURL = url ?? ""
+        let isProxyPDFURL =
+            rawURL.contains("/subs/get-pdf") ||
+            rawURL.contains("/api/arb/pdf") ||
+            rawURL.contains("web.legaltrack.ru/api/arb/pdf") ||
+            rawURL.contains("arbitr.kazna.tech/subs/get-pdf")
+
+        if AppConstants.FeatureFlags.preferKadDirectPdf,
+           let caseId = caseIdKad, !caseId.isEmpty,
+           let docId = documentId, !docId.isEmpty,
+           (url == nil || !rawURL.hasPrefix("http") || isProxyPDFURL) {
+            let encodedCaseId = caseId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? caseId
+            let encodedDocId = docId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? docId
+
+            // If we came from our proxy URL, try to preserve the original filename for kad.arbitr.ru.
+            var fileNamePath: String = ""
+            if isProxyPDFURL, let raw = url,
+               let comps = URLComponents(string: raw),
+               let name = comps.queryItems?.first(where: { $0.name == "name" })?.value,
+               !name.isEmpty {
+                let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+                fileNamePath = "/\(encodedName)"
+            }
+
+            let kadURL = "https://kad.arbitr.ru/Document/Pdf/\(encodedCaseId)/\(encodedDocId)\(fileNamePath)?isAddStamp=True"
+            caseModelDebugLog("📄 [PDF URL] Generated via kad.arbitr.ru (preferred): \(kadURL)")
+            return kadURL
+        }
+
         // Если url уже полный - возвращаем его
         if let url = url, url.hasPrefix("http") {
             caseModelDebugLog("📄 [PDF URL] Using direct URL: \(url)")
             return url
         }
         
-        // Приоритет 1: Через API /subs/get-pdf (основной источник)
+        // Приоритет 1: Через API /subs/get-pdf (основной источник, если FeatureFlags.preferKadDirectPdf == false)
         if let caseId = caseIdKad, !caseId.isEmpty,
            let docId = documentId, !docId.isEmpty, docId != "" {
             // URL-кодируем параметры для безопасности
@@ -1099,6 +1137,7 @@ extension NormalizedCaseDetail {
                             publishDate: item.PublishDisplayDate,
                             type: item.DocumentTypeName,
                             description: item.AdditionalInfo ?? item.DecisionTypeName,
+                            content: item.Content,
                             judges: item.Judges?.compactMap { $0.Name } ?? [],
                             declarers: declarerNames,
                             decision: item.DecisionTypeName,
@@ -1152,6 +1191,7 @@ extension NormalizedCaseDetail {
                         publishDate: nil,
                         type: header,
                         description: text,
+                        content: nil,
                         judges: [],
                         declarers: [],
                         decision: nil,
@@ -1200,6 +1240,7 @@ extension NormalizedCaseDetail {
                         publishDate: nil,
                         type: header,
                         description: text,
+                        content: nil,
                         judges: [],
                         declarers: [],
                         decision: nil,

@@ -4,83 +4,36 @@ import SwiftUI
 struct CasesSearchView: View {
     @StateObject private var viewModel = MonitoringViewModel()
     @State private var searchText: String = ""
-    @FocusState private var isFocused: Bool
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                LiquidGlassBackground()
-                
-                VStack(spacing: 12) {
-                    // Поле поиска
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("ПОИСК ДЕЛА")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(AppColors.textSecondary)
-                            .padding(.horizontal, 4)
-                        
-                        HStack(spacing: 12) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 18))
-                                .foregroundColor(AppColors.textSecondary)
-                            
-                            TextField("Номер дела, название, истец…", text: $searchText)
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                                .focused($isFocused)
-                                .onSubmit { }
-                            
-                            if !searchText.isEmpty {
-                                Button {
-                                    searchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(AppColors.textSecondary)
-                                }
+            List {
+                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView(
+                        "Поиск дела",
+                        systemImage: "magnifyingglass",
+                        description: Text("Введите номер, название или участника")
+                    )
+                } else if filteredCases.isEmpty {
+                    ContentUnavailableView(
+                        "Ничего не найдено",
+                        systemImage: "magnifyingglass",
+                        description: Text("Попробуйте другой запрос")
+                    )
+                } else {
+                    Section("\(filteredCases.count) результатов") {
+                        ForEach(filteredCases) { legalCase in
+                            NavigationLink(destination: CaseDetailView(legalCase: legalCase)) {
+                                CaseRow(legalCase: legalCase)
                             }
                         }
-                        .padding(16)
-                        .background(Material.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(isFocused ? AppColors.primary : .clear, lineWidth: 2)
-                        )
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    
-                    if searchText.isEmpty {
-                        // Пустое состояние
-                        ContentUnavailableView(
-                            "Поиск дела",
-                            systemImage: "magnifyingglass",
-                            description: Text("Введите номер, название или участника")
-                        )
-                        .padding(.top, 40)
-                        Spacer()
-                    } else {
-                        // Результаты поиска
-                        List {
-                            Section {
-                                ForEach(filteredCases) { legalCase in
-                                    NavigationLink(destination: CaseDetailView(legalCase: legalCase)) {
-                                        CaseRow(legalCase: legalCase)
-                                    }
-                                    .listRowBackground(Color.clear)
-                                }
-                            } header: {
-                                Text("\(filteredCases.count) результатов")
-                            }
-                        }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
                     }
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("Поиск")
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, prompt: "Номер дела, название, истец…")
         }
         .task {
             if viewModel.cases.isEmpty {

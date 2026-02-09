@@ -7,17 +7,14 @@
 
 import SwiftUI
 
-/// Экран компаний (iOS 26 Liquid Glass дизайн)
+/// Экран компаний
 struct CompaniesView: View {
     @StateObject private var viewModel = CompaniesViewModel()
     @State private var showAddCompany = false
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                LiquidGlassBackground()
-                
-                List {
+            List {
                 if viewModel.isLoading {
                     Section {
                         HStack {
@@ -47,16 +44,9 @@ struct CompaniesView: View {
                     }
                 }
                 }
-            }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 0) }
-            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
             .navigationTitle("Компании")
             .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .refreshable {
                 await viewModel.loadCompanies()
             }
@@ -95,71 +85,54 @@ struct CompanyRow: View {
     let company: Company
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // Компактная иконка
-            Circle()
-                .fill(AppColors.secondary)
-                .frame(width: 36, height: 36)
-                .overlay(
-                    Image(systemName: "building.2")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                )
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "building.2.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 30)
 
-            VStack(alignment: .leading, spacing: 3) {
-                // Название компании
-                Text(company.name)
-                    .font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayName)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
 
-                // ИНН - компактно
-                if let inn = company.inn, !inn.isEmpty {
-                    Text("ИНН: \(inn)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-
-                // Бейджи - компактно в одну строку
-                HStack(spacing: 6) {
-                    // Новые дела
-                    if let new = company.new, new > 0 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "bell.badge.fill")
-                                .font(.system(size: 9))
-                            Text("+\(new)")
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.red)
-                        .cornerRadius(6)
+                HStack(spacing: 10) {
+                    if let inn = company.inn, !inn.isEmpty {
+                        Text("ИНН \(inn)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
 
-                    // Всего дел
-                    if let totalCases = company.totalCases {
-                        HStack(spacing: 3) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 9))
-                            Text(totalCases)
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.15))
-                        .cornerRadius(6)
+                    if let totalCases = company.totalCases, !totalCases.isEmpty {
+                        Text("Дел: \(totalCases)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
 
             Spacer(minLength: 0)
+
+            if let new = company.new, new > 0 {
+                Text("+\(new)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.red, in: Capsule())
+                    .accessibilityLabel("Новых: \(new)")
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Material.thinMaterial)
-        .cornerRadius(12)
+        .padding(.vertical, 4)
+    }
+
+    private var displayName: String {
+        let custom = (company.nameCustom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { return custom }
+        return company.name
     }
 }
 

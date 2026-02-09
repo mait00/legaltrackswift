@@ -9,23 +9,31 @@ import SwiftUI
 
 /// Главный TabBar с навигацией (iOS 26 Liquid Glass дизайн)
 struct MainTabView: View {
-    @State private var selectedTab: Tab = .cases
+    @State private var selectedTab: Tab = .feed
     @State private var showAddCase = false
     
     enum Tab: Int {
-        case cases = 0
-        case companies = 1
-        case calendar = 2
-        case search = 3
-        case profile = 4
+        case feed = 0
+        case cases = 1
+        case companies = 2
+        case calendar = 3
+        case delays = 4
+        case search = 5
+        case profile = 6
     }
     
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: Binding(
                 get: { selectedTab.rawValue },
-                set: { selectedTab = Tab(rawValue: $0) ?? .cases }
+                set: { selectedTab = Tab(rawValue: $0) ?? .feed }
             )) {
+                NotificationsView(title: "Лента")
+                    .tabItem {
+                        Label("Лента", systemImage: "clock.arrow.circlepath")
+                    }
+                    .tag(Tab.feed.rawValue)
+
                 CasesView(showAddCase: $showAddCase)
                     .tabItem {
                         Label("Дела", systemImage: "folder.fill")
@@ -43,6 +51,12 @@ struct MainTabView: View {
                         Label("Календарь", systemImage: "calendar")
                     }
                     .tag(Tab.calendar.rawValue)
+
+                DelaysView()
+                    .tabItem {
+                        Label("Задержки", systemImage: "hourglass")
+                    }
+                    .tag(Tab.delays.rawValue)
                 
                 CasesSearchView()
                     .tabItem {
@@ -62,11 +76,9 @@ struct MainTabView: View {
             AddCaseView()
         }
         .onAppear {
-            // Настройка TabBar с Liquid Glass эффектом
+            // HIG: используем системный внешний вид TabBar
             let appearance = UITabBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-            appearance.shadowColor = UIColor.black.withAlphaComponent(0.1)
+            appearance.configureWithDefaultBackground()
             
             UITabBar.appearance().standardAppearance = appearance
             if #available(iOS 15.0, *) {
@@ -100,4 +112,3 @@ struct SearchView: View {
     MainTabView()
         .environmentObject(AppState())
 }
-

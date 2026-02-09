@@ -18,7 +18,8 @@ struct CalendarView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LiquidGlassBackground()
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
                     // Календарь
@@ -57,16 +58,7 @@ struct CalendarView: View {
                         )
                     }
                     .background(Material.thinMaterial)
-                    .clipShape(
-                        UnevenRoundedRectangle(
-                            cornerRadii: .init(
-                                topLeading: 0,
-                                bottomLeading: 20,
-                                bottomTrailing: 20,
-                                topTrailing: 0
-                            )
-                        )
-                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     
                     Divider()
                         .padding(.top, AppSpacing.sm)
@@ -88,8 +80,6 @@ struct CalendarView: View {
                         .padding(.vertical, AppSpacing.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-                    .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
                     .refreshable {
                         await viewModel.loadEvents()
                     }
@@ -97,7 +87,6 @@ struct CalendarView: View {
             }
             .navigationTitle("Календарь")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -400,7 +389,6 @@ struct CalendarDayCell: View {
 
 struct CalendarEventCardView: View {
     let event: CalendarEvent
-    @State private var showCaseDetail = false
 
     var body: some View {
         NavigationLink(destination: destinationView) {
@@ -436,19 +424,36 @@ struct CalendarEventCardView: View {
                             }
                         }
 
+                        // Краткое описание заседания
+                        if let summary = event.description, !summary.isEmpty {
+                            Text(summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+
                         // Участники дела (third_line)
-                        if let participants = event.thirdLine, !participants.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) {
+                        if !participantItems.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 6) {
                                     Image(systemName: "person.2.fill")
                                         .font(.caption)
-                                        .foregroundStyle(.orange)
-                                    Text(participants)
-                                        .font(.caption)
+                                        .foregroundStyle(AppColors.secondary)
+                                    Text("Участники")
+                                        .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
-                                        .lineLimit(2)
                                 }
+
+                                Text(participantItems.joined(separator: " • "))
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
                             }
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(AppColors.secondaryBackground.opacity(0.85))
+                            )
                         }
 
                         // Суд и судья
@@ -484,9 +489,33 @@ struct CalendarEventCardView: View {
             }
             .padding(0)
             .background(Material.thinMaterial)
-            .cornerRadius(AppConstants.UI.cardCornerRadius)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    private var participantItems: [String] {
+        guard let raw = event.thirdLine?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return []
+        }
+
+        var parts = raw
+            .components(separatedBy: CharacterSet(charactersIn: ";\n|•"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if parts.count <= 1, raw.contains(" / ") {
+            parts = raw
+                .components(separatedBy: " / ")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+
+        if parts.isEmpty {
+            parts = [raw]
+        }
+
+        return Array(parts.prefix(3))
     }
 
     @ViewBuilder

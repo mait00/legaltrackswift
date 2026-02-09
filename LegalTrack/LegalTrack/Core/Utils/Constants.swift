@@ -14,6 +14,12 @@ enum AppConstants {
         static let baseURL = "https://arbitr.kazna.tech"
         static let timeout: TimeInterval = 30
     }
+
+    // MARK: - Feature Flags
+    enum FeatureFlags {
+        /// Temporary: prefer direct kad.arbitr.ru PDF links instead of our proxy (/subs/get-pdf, /api/arb/pdf).
+        static let preferKadDirectPdf: Bool = true
+    }
     
     // MARK: - OneSignal
     enum OneSignal {
@@ -49,4 +55,3 @@ enum AppConstants {
         static let springDamping: Double = 0.8
     }
 }
-

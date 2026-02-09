@@ -89,9 +89,30 @@ class AuthViewModel: ObservableObject {
                 )
                 
                 isLoading = false
-                let success = response.success == true || response.status == "success" || response.data?.success == true
+                
+                // Бэкенд иногда возвращает успех только в message, без явных success/status.
+                let message = (response.message ?? response.data?.message ?? "").lowercased()
+                let hasSuccessMessage =
+                    message.contains("успешно") ||
+                    message.contains("отправлен") ||
+                    message.contains("отправлено")
+                let hasExplicitError =
+                    message.contains("ошибка") ||
+                    message.contains("error") ||
+                    message.contains("неверный") ||
+                    message.contains("invalid") ||
+                    message.contains("не удалось")
+                
+                let success =
+                    (response.success == true ||
+                     response.status == "success" ||
+                     response.data?.success == true ||
+                     hasSuccessMessage) && !hasExplicitError
+                
                 if !success {
                     errorMessage = response.message ?? response.data?.message ?? "Не удалось отправить код"
+                } else {
+                    errorMessage = nil
                 }
                 await MainActor.run {
                     completion(success)
@@ -192,4 +213,3 @@ class AuthViewModel: ObservableObject {
         }
     }
 }
-

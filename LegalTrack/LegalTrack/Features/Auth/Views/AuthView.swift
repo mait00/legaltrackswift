@@ -29,102 +29,100 @@ struct AuthView: View {
     }
     
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Liquid Glass фон
-                LiquidGlassBackground()
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hex: "#F6F9FF"),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea()
+            
+            // Основной контент
+            VStack(spacing: 0) {
+                Spacer()
                 
-                // Основной контент
-                VStack(spacing: 0) {
-                    Spacer()
-                    
-                    // Лого и заголовок
-                    VStack(spacing: 16) {
-                        // Логотип
-                        Image("logo")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 80, height: 80)
-                            .shadow(color: AppColors.secondary.opacity(0.5), radius: 20, y: 10)
-                            .padding(.bottom, 8)
-                            .opacity(isAnimating ? 1.0 : 0)
-                        
-                        Image("ucni_legaltrack")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 36)
-                            .padding(.bottom, 2)
-                            .opacity(isAnimating ? 1.0 : 0)
-                        
-                        Text(currentStep == .input ? "Вход в систему" : "Подтверждение")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white.opacity(0.6))
-                            .opacity(isAnimating ? 1.0 : 0)
-                    }
-                    .padding(.bottom, 48)
-                    
-                    // Форма ввода
-                    VStack(spacing: 20) {
-                        if currentStep == .input {
-                            inputView
-                        } else {
-                            codeView
-                        }
-                    }
-                    .padding(.horizontal, 32)
-                    .opacity(isAnimating ? 1.0 : 0)
-                    .offset(y: isAnimating ? 0 : 20)
-                    .frame(maxWidth: 500) // Ограничение ширины для iPad
-                    
-                    Spacer()
-                    
-                    // Переключатель метода
-                    if currentStep == .input {
-                        Button {
-                            withAnimation(.spring(response: 0.3)) {
-                                authMethod = authMethod == .email ? .phone : .email
-                                phoneNumber = ""
-                                email = ""
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: authMethod == .email ? "phone" : "envelope")
-                                    .font(.system(size: 14))
-                                Text(authMethod == .email ? "Войти по телефону" : "Войти по email")
-                                    .font(.system(size: 14, weight: .medium))
-                            }
-                            .foregroundColor(.white.opacity(0.5))
-                            .padding(.vertical, 12)
-                        }
+                // Лого и заголовок
+                VStack(spacing: 14) {
+                    Image("Ltlogonew")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 24)
+                        .padding(.bottom, 2)
                         .opacity(isAnimating ? 1.0 : 0)
-                    } else {
-                        Button {
-                            withAnimation(.spring(response: 0.3)) {
-                                currentStep = .input
-                                code = ""
-                                viewModel.errorMessage = nil
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.left")
-                                    .font(.system(size: 14))
-                                Text("Изменить \(authMethod == .email ? "email" : "номер")")
-                                    .font(.system(size: 14, weight: .medium))
-                            }
-                            .foregroundColor(.white.opacity(0.5))
-                            .padding(.vertical, 12)
-                        }
-                    }
                     
-                    // Отступ для безопасной зоны
-                    Spacer()
-                        .frame(height: 20)
+                    Text(currentStep == .input ? "Вход в систему" : "Подтверждение")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+                        .opacity(isAnimating ? 1.0 : 0)
                 }
+                .padding(.bottom, 48)
+                
+                // Форма ввода
+                VStack(spacing: 20) {
+                    if currentStep == .input {
+                        inputView
+                    } else {
+                        codeView
+                    }
+                }
+                .padding(.horizontal, 32)
+                .opacity(isAnimating ? 1.0 : 0)
+                .offset(y: isAnimating ? 0 : 20)
+                .frame(maxWidth: 500) // Ограничение ширины для iPad
+                
+                Spacer()
+                
+                // Переключатель метода
+                if currentStep == .input {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            authMethod = authMethod == .email ? .phone : .email
+                            phoneNumber = ""
+                            email = ""
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: authMethod == .email ? "phone" : "envelope")
+                                .font(.system(size: 14))
+                            Text(authMethod == .email ? "Войти по телефону" : "Войти по email")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.vertical, 12)
+                    }
+                    .opacity(isAnimating ? 1.0 : 0)
+                } else {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            currentStep = .input
+                            code = ""
+                            viewModel.errorMessage = nil
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.left")
+                                .font(.system(size: 14))
+                            Text("Изменить \(authMethod == .email ? "email" : "номер")")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.vertical, 12)
+                    }
+                }
+                
+                // Отступ для безопасной зоны
+                Spacer()
+                    .frame(height: 20)
             }
-            .preferredColorScheme(.dark)
         }
+        // Экран входа сейчас рассчитан на светлый фон; фиксируем схему,
+        // чтобы системные semantic-цвета (label/secondaryLabel) не становились белыми в dark mode.
+        .preferredColorScheme(.light)
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
+            withAnimation(.easeOut(duration: 0.25)) {
                 isAnimating = true
             }
         }
@@ -184,11 +182,11 @@ struct AuthView: View {
             VStack(spacing: 8) {
                 Text("Код отправлен на")
                     .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(AppColors.textSecondary)
                 
                 Text(authMethod == .email ? email : formattedPhoneForDisplay)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppColors.textPrimary)
             }
             .padding(.bottom, 8)
             
@@ -236,17 +234,25 @@ struct AuthView: View {
     // MARK: - Actions
     
     private func requestCode() {
-        withAnimation(.spring(response: 0.3)) {
-            currentStep = .code
-        }
-        
         if authMethod == .email {
             let trimmedEmail = email.trimmingCharacters(in: .whitespaces).lowercased()
-            viewModel.requestCode(email: trimmedEmail) { _ in }
+            viewModel.requestCode(email: trimmedEmail) { success in
+                if success {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        currentStep = .code
+                    }
+                }
+            }
         } else {
             // Используем очищенный номер из RussianPhoneTextField
             let finalPhone = cleanedPhoneNumber
-            viewModel.requestCode(phone: finalPhone) { _ in }
+            viewModel.requestCode(phone: finalPhone) { success in
+                if success {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        currentStep = .code
+                    }
+                }
+            }
         }
     }
     
@@ -286,22 +292,12 @@ struct AuthView: View {
     
     /// Проверяет валидность номера телефона
     private var isPhoneValid: Bool {
-        let cleaned = phoneNumber.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
-        return cleaned.count == 10
+        RussianPhoneTextField.normalizeLocal10Digits(from: phoneNumber).count == 10
     }
     
     /// Возвращает очищенный номер телефона для отправки на сервер
     private var cleanedPhoneNumber: String {
-        let cleaned = phoneNumber.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
-        // Если 10 цифр, добавляем 7 в начало
-        if cleaned.count == 10 {
-            return "7" + cleaned
-        }
-        // Если уже начинается с 7 или 8 и 11 цифр
-        if (cleaned.hasPrefix("7") || cleaned.hasPrefix("8")) && cleaned.count == 11 {
-            return cleaned.hasPrefix("8") ? "7" + String(cleaned.dropFirst()) : cleaned
-        }
-        return cleaned
+        RussianPhoneTextField.normalizeE164RuDigits(from: phoneNumber)
     }
     
     /// Форматированный номер для отображения
@@ -328,12 +324,12 @@ struct AuthTextField: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundColor(isFocused ? AppColors.secondary : .white.opacity(0.4))
+                .foregroundColor(isFocused ? AppColors.secondary : AppColors.textSecondary.opacity(0.8))
                 .frame(width: 24)
             
-            TextField("", text: $text, prompt: Text(placeholder).foregroundColor(.white.opacity(0.3)))
+            TextField("", text: $text, prompt: Text(placeholder).foregroundColor(AppColors.textSecondary.opacity(0.7)))
                 .font(.system(size: 17))
-                .foregroundColor(.white)
+                .foregroundColor(AppColors.textPrimary)
                 .keyboardType(keyboardType)
                 .textContentType(textContentType)
                 .autocapitalization(.none)
@@ -342,29 +338,28 @@ struct AuthTextField: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
+        // Avoid heavy implicit animations on focus which can stall the main thread on older devices.
+        .transaction { $0.animation = nil }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Material.ultraThinMaterial)
+                .fill(Color.white)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(
                             isFocused 
-                                ? LinearGradient(
-                                    colors: [AppColors.secondary.opacity(0.6), AppColors.secondary.opacity(0.3)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
+                                ? AnyShapeStyle(
+                                    LinearGradient(
+                                        colors: [AppColors.secondary.opacity(0.6), AppColors.secondary.opacity(0.3)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
                                 )
-                                : LinearGradient(
-                                    colors: [Color.white.opacity(0.1), Color.white.opacity(0.05)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                            lineWidth: 1.5
+                                : AnyShapeStyle(AppColors.border.opacity(0.7)),
+                            lineWidth: isFocused ? 1.5 : 1
                         )
                 )
         )
-        .shadow(color: isFocused ? AppColors.secondary.opacity(0.2) : .clear, radius: 8, y: 4)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isFocused)
+        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 6)
     }
 }
 
@@ -381,7 +376,7 @@ struct AuthButton: View {
             HStack(spacing: 10) {
                 if isLoading {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .progressViewStyle(CircularProgressViewStyle(tint: isEnabled ? AppColors.textOnPrimary : AppColors.textSecondary))
                         .scaleEffect(0.9)
                 } else {
                     Text(title)
@@ -391,7 +386,7 @@ struct AuthButton: View {
                         .font(.system(size: 14, weight: .semibold))
                 }
             }
-            .foregroundColor(.white)
+            .foregroundColor(isEnabled && !isLoading ? AppColors.textOnPrimary : AppColors.textSecondary)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background(
@@ -403,12 +398,16 @@ struct AuthButton: View {
                             endPoint: .trailing
                         )
                     } else {
-                        Color.white.opacity(0.1)
+                        AppColors.secondaryBackground
                     }
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: isEnabled ? AppColors.secondary.opacity(0.4) : .clear, radius: 12, y: 6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isEnabled ? Color.clear : AppColors.border.opacity(0.7), lineWidth: 1)
+            )
+            .shadow(color: isEnabled ? AppColors.secondary.opacity(0.35) : Color.black.opacity(0.04), radius: 12, y: 6)
         }
         .disabled(!isEnabled || isLoading)
         .animation(.easeInOut(duration: 0.2), value: isEnabled)

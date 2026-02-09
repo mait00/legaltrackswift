@@ -13,14 +13,18 @@ final class CacheManager {
     
     private let fileManager = FileManager.default
     private let ioQueue = DispatchQueue(label: "CacheManager.IO", qos: .utility)
+    private static let cacheSuiteName = "ru.legalsystems.legaltrack.cache"
+    private let cacheDefaults: UserDefaults
     private let cacheDirectory: URL
     private let casesDirectory: URL
     private let pdfDirectory: URL
     
     // Время жизни кэша (7 дней)
     private let cacheExpirationInterval: TimeInterval = 7 * 24 * 60 * 60
+    private let readNotificationKeysKey = "read_notification_keys_v1"
     
     private init() {
+        self.cacheDefaults = UserDefaults(suiteName: Self.cacheSuiteName) ?? .standard
         let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
         cacheDirectory = cachesURL.appendingPathComponent("LegalTrackCache", isDirectory: true)
         casesDirectory = cacheDirectory.appendingPathComponent("cases", isDirectory: true)
@@ -304,6 +308,23 @@ final class CacheManager {
             self?.loadCachedNotifications(page: page)
         }
     }
+
+    // MARK: - Notifications Read State
+
+    func loadReadNotificationKeys() -> Set<String> {
+        let arr = cacheDefaults.array(forKey: readNotificationKeysKey) as? [String] ?? []
+        return Set(arr)
+    }
+
+    func saveReadNotificationKeys(_ keys: Set<String>) {
+        // Ограничиваем, чтобы не раздувать UserDefaults бесконечно.
+        let capped = Array(keys.prefix(10_000))
+        cacheDefaults.set(capped, forKey: readNotificationKeysKey)
+    }
+
+    func clearReadNotificationKeys() {
+        cacheDefaults.removeObject(forKey: readNotificationKeysKey)
+    }
     
     // MARK: - PDF Caching
     
@@ -492,11 +513,11 @@ final class CacheManager {
     // MARK: - Cache Timestamps
     
     private func saveCacheTimestamp(for key: String) {
-        UserDefaults.standard.set(Date(), forKey: "cache_timestamp_\(key)")
+        cacheDefaults.set(Date(), forKey: "cache_timestamp_\(key)")
     }
     
     private func isCacheExpired(for key: String) -> Bool {
-        guard let timestamp = UserDefaults.standard.object(forKey: "cache_timestamp_\(key)") as? Date else {
+        guard let timestamp = cacheDefaults.object(forKey: "cache_timestamp_\(key)") as? Date else {
             return true
         }
         return Date().timeIntervalSince(timestamp) > cacheExpirationInterval
@@ -504,7 +525,7 @@ final class CacheManager {
     
     /// Получить время последней синхронизации
     func getLastSyncTime(for key: String = "cases_list") -> Date? {
-        return UserDefaults.standard.object(forKey: "cache_timestamp_\(key)") as? Date
+        return cacheDefaults.object(forKey: "cache_timestamp_\(key)") as? Date
     }
     
     // MARK: - Cache Management
@@ -514,10 +535,12 @@ final class CacheManager {
         try? fileManager.removeItem(at: cacheDirectory)
         createDirectoriesIfNeeded()
         
-        // Удаляем timestamps
-        let defaults = UserDefaults.standard
-        let keys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("cache_timestamp_") }
-        keys.forEach { defaults.removeObject(forKey: $0) }
+        // Удаляем timestamps (в отдельном suite, чтобы не лочить UserDefaults.standard)
+        let keys = cacheDefaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("cache_timestamp_") }
+        keys.forEach { cacheDefaults.removeObject(forKey: $0) }
+
+        // Удаляем локальные состояния (прочитанность и т.п.)
+        clearReadNotificationKeys()
         
         print("🗑️ [CacheManager] All cache cleared")
     }
@@ -546,8 +569,7 @@ final class CacheManager {
         try? fileManager.removeItem(at: fileURL)
         
         // Удаляем timestamp
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "cache_timestamp_\(key)")
+        cacheDefaults.removeObject(forKey: "cache_timestamp_\(key)")
         
         print("🗑️ [CacheManager] Cache cleared for key: \(key)")
     }

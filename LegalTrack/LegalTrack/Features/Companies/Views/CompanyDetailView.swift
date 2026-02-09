@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// Детальная страница компании (iOS 26 Liquid Glass дизайн)
+/// Детальная страница компании
 struct CompanyDetailView: View {
     let companyId: Int
     @StateObject private var viewModel = CompanyDetailViewModel()
@@ -17,7 +17,7 @@ struct CompanyDetailView: View {
     
     var body: some View {
         Group {
-            if viewModel.isLoading {
+            if viewModel.isLoading && viewModel.company == nil {
                 loadingView
             } else if let company = viewModel.company {
                 contentView(company: company)
@@ -29,7 +29,6 @@ struct CompanyDetailView: View {
         }
         .navigationTitle(viewModel.company?.name ?? "Компания")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if viewModel.company != nil {
@@ -58,18 +57,14 @@ struct CompanyDetailView: View {
     // MARK: - Loading View
     
     private var loadingView: some View {
-        ZStack {
-            LiquidGlassBackground()
-            
-            VStack(spacing: 20) {
-                ProgressView()
-                    .scaleEffect(1.2)
-                Text("Загрузка...")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("Загрузка...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
     
     // MARK: - Error View
@@ -91,182 +86,75 @@ struct CompanyDetailView: View {
     // MARK: - Content View
     
     private func contentView(company: Company) -> some View {
-        ZStack {
-            LiquidGlassBackground()
-            
-            ScrollView {
-                LazyVStack(spacing: 20) {
-                    // Карточка компании
-                    companyInfoCard(company: company)
-                    
-                    // Список дел компании
-                    casesSection
-                }
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.lg)
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-    
-    // MARK: - Company Info Card
-    
-    private func companyInfoCard(company: Company) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Название компании
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.purple, Color.purple.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                        .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 0, y: 4)
-                    
-                    Image(systemName: "building.2.fill")
-                        .font(.title3)
-                        .foregroundStyle(.white)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(company.name)
-                        .font(.title2.weight(.bold))
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(displayName(company))
+                        .font(.headline)
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    
+
                     if let inn = company.inn, !inn.isEmpty {
-                        Text("ИНН: \(inn)")
+                        Text("ИНН \(inn)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 10) {
+                        if let totalCases = company.totalCases, !totalCases.isEmpty {
+                            Label("Дел: \(totalCases)", systemImage: "folder")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let lastEvent = company.lastEvent, !lastEvent.isEmpty {
+                            Label(lastEvent, systemImage: "clock")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    if let new = company.new, new > 0 {
+                        Text("Новых: \(new)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                Spacer()
-                
-                if let new = company.new, new > 0 {
-                    Text("+\(new)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.red, Color.red.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            in: Capsule()
-                        )
-                        .shadow(color: Color.red.opacity(0.3), radius: 4, x: 0, y: 2)
-                }
+                .padding(.vertical, 4)
             }
-            
-            Divider()
-                .background(Material.ultraThinMaterial)
-            
-            // Информация о компании
-            VStack(spacing: 12) {
-                // Всего дел
-                if let totalCases = company.totalCases, !totalCases.isEmpty {
-                    infoRow(icon: "folder.fill", title: "Всего дел", value: totalCases, color: .blue)
-                }
-                
-                // Последнее событие
-                if let lastEvent = company.lastEvent, !lastEvent.isEmpty {
-                    infoRow(icon: "clock.fill", title: "Последнее событие", value: lastEvent, color: .orange)
-                }
-                
-                // Статус
-                if let status = company.status, !status.isEmpty {
-                    infoRow(icon: "checkmark.circle.fill", title: "Статус", value: status.capitalized, color: .green)
-                }
-            }
-        }
-        .liquidGlassCard(padding: 20, material: .thinMaterial)
-    }
-    
-    private func infoRow(icon: String, title: String, value: String, color: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.subheadline)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [color, color.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+
+            Section {
+                if viewModel.cases.isEmpty {
+                    ContentUnavailableView(
+                        "Нет дел",
+                        systemImage: "doc.text",
+                        description: Text("У этой компании пока нет дел")
                     )
-                )
-                .frame(width: 20)
-            
-            Text(title)
-                .font(.subheadline)
-                .lineLimit(1)
-                .fixedSize(horizontal: false, vertical: true)
-                .foregroundStyle(.secondary)
-            
-            Spacer(minLength: 4)
-            
-            Text(value)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-    
-    // MARK: - Cases Section
-    
-    private var casesSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("Дела компании", systemImage: "folder.fill")
-                    .font(.headline.weight(.semibold))
-                Spacer()
-                
-                if !viewModel.cases.isEmpty {
-                    Text("\(viewModel.cases.count)")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Material.ultraThinMaterial,
-                            in: RoundedRectangle(cornerRadius: 8)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                } else {
+                    ForEach(viewModel.cases) { companyCase in
+                        CompanyCaseRow(
+                            companyCase: companyCase,
+                            isInMonitoring: monitoringViewModel.cases.contains { $0.id == companyCase.id },
+                            selectedCaseId: $selectedCaseId
                         )
-                }
-            }
-            
-            if viewModel.cases.isEmpty {
-                ContentUnavailableView(
-                    "Нет дел",
-                    systemImage: "doc.text",
-                    description: Text("У этой компании пока нет дел")
-                )
-                .frame(height: 150)
-            } else {
-                ForEach(viewModel.cases) { companyCase in
-                    CompanyCaseRow(
-                        companyCase: companyCase,
-                        isInMonitoring: monitoringViewModel.cases.contains { $0.id == companyCase.id },
-                        selectedCaseId: $selectedCaseId
-                    )
-                    
-                    if companyCase.id != viewModel.cases.last?.id {
-                        Divider()
-                            .background(Material.ultraThinMaterial)
-                            .padding(.vertical, 4)
                     }
                 }
+            } header: {
+                Text("Дела компании")
+            } footer: {
+                Text("Карточка дела открывается только для дел, добавленных в «Мои дела». Для остальных показывается ограниченная информация.")
             }
         }
-        .liquidGlassCard(padding: 20, material: .ultraThinMaterial)
+        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func displayName(_ company: Company) -> String {
+        let custom = (company.nameCustom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { return custom }
+        return company.name
     }
     
     // MARK: - Share
@@ -301,5 +189,3 @@ struct CompanyDetailView: View {
         CompanyDetailView(companyId: 1597)
     }
 }
-
-

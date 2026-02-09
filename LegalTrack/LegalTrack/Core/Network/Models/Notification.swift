@@ -48,6 +48,8 @@ struct AppNotification: Codable, Identifiable {
         case caseId = "case"
         case companyId = "company"
         case isSou = "is_sou"
+        // Локальное поле для кэша (сервер может не присылать)
+        case isRead = "is_read"
     }
     
     init(from decoder: Decoder) throws {
@@ -68,7 +70,7 @@ struct AppNotification: Codable, Identifiable {
         companyId = try container.decodeIfPresent(Int.self, forKey: .companyId)
         
         isSou = try container.decodeIfPresent(Bool.self, forKey: .isSou) ?? false
-        isRead = false
+        isRead = try container.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
     }
     
     init(
@@ -112,7 +114,13 @@ struct AppNotification: Codable, Identifiable {
         try container.encode(caseId, forKey: .caseId)
         try container.encodeIfPresent(companyId, forKey: .companyId)
         try container.encode(isSou, forKey: .isSou)
+        try container.encode(isRead, forKey: .isRead)
     }
+}
+
+extension AppNotification {
+    /// Стабильный ключ для сохранения прочитанности между перезагрузками.
+    var readKey: String { "\(id)|\(caseId)|\(meta)" }
 }
 
 // Расширение для Hashable (для использования в NavigationLink)

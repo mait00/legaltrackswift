@@ -21,10 +21,7 @@ struct CasesView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                LiquidGlassBackground()
-                
-                List {
+            List {
                     // Баннер офлайн режима
                     if viewModel.isOffline {
                         Section {
@@ -112,17 +109,10 @@ struct CasesView: View {
                     .listRowBackground(Color.clear)
                 }
                 }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 0) }
-            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
+            .listStyle(.insetGrouped)
             .navigationTitle("Дела")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $viewModel.searchText, prompt: "Поиск по делам")
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .refreshable {
                 await viewModel.loadCases()
             }
@@ -234,14 +224,10 @@ struct CaseRow: View {
                     if newCount > 0 {
                         Text("Новые \(newCount)")
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.red)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(
-                                LinearGradient(colors: [.red, .orange], startPoint: .leading, endPoint: .trailing),
-                                in: Capsule()
-                            )
-                            .shadow(color: Color.red.opacity(0.2), radius: 3, y: 1)
+                            .background(Color.red.opacity(0.12), in: Capsule())
                     }
                 }
             }
@@ -262,36 +248,9 @@ struct CaseRow: View {
             participantsView
 
             // Метаданные: суд, событие, кол-во документов, город
-            HStack(spacing: 10) {
-                Group {
-                    if let courtName = legalCase.courtName, !courtName.isEmpty {
-                        Label(courtName, systemImage: "building.columns.fill")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                    }
-                }
-                if let lastEvent = legalCase.lastEvent, !lastEvent.isEmpty {
-                    Text("•").font(.caption).foregroundStyle(.tertiary)
-                    Label(lastEvent, systemImage: "doc.text")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                if let total = totalDocsText {
-                    Text("•").font(.caption).foregroundStyle(.tertiary)
-                    Label("Документов: \(total)", systemImage: "folder")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                if let city = legalCase.city, !city.isEmpty {
-                    Text("•").font(.caption).foregroundStyle(.tertiary)
-                    Label(city, systemImage: "mappin.and.ellipse")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                metadataLine(items: firstMetadataLineItems)
+                metadataLine(items: secondMetadataLineItems)
             }
         }
         .padding(16)
@@ -307,6 +266,54 @@ struct CaseRow: View {
                         )
                 )
         )
+    }
+
+    private var firstMetadataLineItems: [(String, String)] {
+        var items: [(String, String)] = []
+
+        if let courtName = legalCase.courtName, !courtName.isEmpty {
+            items.append(("building.columns.fill", courtName))
+        }
+
+        if let lastEvent = legalCase.lastEvent, !lastEvent.isEmpty {
+            items.append(("doc.text", lastEvent))
+        }
+
+        return items
+    }
+
+    private var secondMetadataLineItems: [(String, String)] {
+        var items: [(String, String)] = []
+
+        if let total = totalDocsText {
+            items.append(("folder", "Документов: \(total)"))
+        }
+
+        if let city = legalCase.city, !city.isEmpty {
+            items.append(("mappin.and.ellipse", city))
+        }
+
+        return items
+    }
+
+    @ViewBuilder
+    private func metadataLine(items: [(String, String)]) -> some View {
+        if !items.isEmpty {
+            HStack(spacing: 10) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    if index > 0 {
+                        Circle()
+                            .fill(Color.secondary.opacity(0.35))
+                            .frame(width: 3, height: 3)
+                    }
+
+                    Label(item.1, systemImage: item.0)
+                        .font(.caption)
+                        .foregroundStyle(index == 0 ? .secondary : .tertiary)
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 
     @ViewBuilder

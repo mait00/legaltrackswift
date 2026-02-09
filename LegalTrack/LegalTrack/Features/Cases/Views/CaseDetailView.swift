@@ -17,10 +17,12 @@ struct CaseDetailView: View {
     @State private var selectedTab: CaseTab = .caseInfo
     @State private var selectedPDFDocument: NormalizedDocument?
     @State private var showPDFViewer = false
+    @State private var selectedDocumentDetails: DocumentDetailsContext?
     @State private var showDeleteConfirm = false
     @State private var showActionSheet = false
     @State private var pendingAction: PendingAction?
     @State private var tempText: String = ""
+    @State private var showKadOpeningOverlay = false
     
     /// Инициализатор с полным объектом LegalCase
     init(legalCase: LegalCase) {
@@ -56,7 +58,6 @@ struct CaseDetailView: View {
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -110,6 +111,29 @@ struct CaseDetailView: View {
                 }
             }
         }
+        .overlay {
+            if showKadOpeningOverlay {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Открываем документ…")
+                            .font(.headline)
+                        Text("kad.arbitr.ru может показать проверку (капчу).")
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 18)
+                    }
+                    .padding(18)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 24)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showKadOpeningOverlay)
         .task {
             await viewModel.loadCaseDetail(caseId: caseId)
         }
@@ -118,13 +142,31 @@ struct CaseDetailView: View {
             if let document = selectedPDFDocument,
                let pdfURLString = document.pdfURL,
                !pdfURLString.isEmpty {
-                // Загружаем PDF и показываем в полноэкранном просмотрщике
-                PDFFullScreenViewer(
-                    document: document,
-                    caseId: caseId,
-                    pdfURLString: pdfURLString
-                )
+                // kad.arbitr.ru links are often protected by ddos/captcha and can't be downloaded with URLSession/PDFKit.
+                // Show them via SFSafariViewController so the challenge can run and the PDF can open.
+                if AppConstants.FeatureFlags.preferKadDirectPdf,
+                   pdfURLString.contains("kad.arbitr.ru/Document/Pdf"),
+                   let url = URL(string: pdfURLString) {
+                    SafariPDFScreen(url: url, title: document.type ?? "Документ")
+                } else {
+                    // Загружаем PDF и показываем в полноэкранном просмотрщике
+                    PDFFullScreenViewer(
+                        document: document,
+                        caseId: caseId,
+                        pdfURLString: pdfURLString
+                    )
+                }
             }
+        }
+        .sheet(item: $selectedDocumentDetails) { ctx in
+            DocumentDetailSheet(
+                context: ctx,
+                onOpenCaseLink: {
+                    if let link = viewModel.caseDetail?.cardLink ?? viewModel.caseDetail?.link ?? legalCase?.cardLink ?? legalCase?.link {
+                        openURL(link)
+                    }
+                }
+            )
         }
         .confirmationDialog("Удалить дело из мониторинга?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Удалить", role: .destructive) {
@@ -176,7 +218,8 @@ struct CaseDetailView: View {
     
     private var loadingView: some View {
         ZStack {
-            LiquidGlassBackground()
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
             
             VStack(spacing: 20) {
                 ProgressView()
@@ -209,8 +252,8 @@ struct CaseDetailView: View {
     
     private func contentView(detail: NormalizedCaseDetail) -> some View {
         ZStack {
-            // Liquid Glass фон
-            LiquidGlassBackground()
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
             
             ScrollView {
                 LazyVStack(spacing: 20) {
@@ -222,18 +265,11 @@ struct CaseDetailView: View {
                     
                     // Контент вкладки
                     tabContentCards(detail: detail)
-                    
-                    // Последний судебный акт (PDF просмотр)
-                    if let lastAct = getLastJudicialAct(detail: detail) {
-                        lastActSection(document: lastAct, caseId: detail.id)
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
         }
     }
     
@@ -242,8 +278,105 @@ struct CaseDetailView: View {
     private func caseInfoCard(detail: NormalizedCaseDetail) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             caseInfoView(detail: detail)
+
+            let recent = recentCaseEvents(detail: detail, limit: 6)
+            if !recent.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Недавние события")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    ForEach(Array(recent.enumerated()), id: \.element.document.id) { idx, item in
+                        RecentEventRow(document: item.document, subtitle: item.instanceName) {
+                            openDocument(item.document, subtitle: item.instanceName)
+                        }
+                        if idx != recent.count - 1 {
+                            Divider()
+                                .padding(.leading, 36)
+                        }
+                    }
+                }
+            }
         }
         .liquidGlassCard(padding: 20, material: .thinMaterial)
+    }
+
+    private func recentCaseEvents(detail: NormalizedCaseDetail, limit: Int) -> [(document: NormalizedDocument, instanceName: String)] {
+        let flattened: [(NormalizedDocument, String)] = detail.instances.flatMap { inst in
+            inst.documents.map { ($0, inst.name) }
+        }
+
+        // Сортируем по дате документа (desc). Если даты нет - в конец.
+        let sorted = flattened.sorted { a, b in
+            let da = a.0.date ?? parseDocumentDate(a.0.displayDate)
+            let db = b.0.date ?? parseDocumentDate(b.0.displayDate)
+            switch (da, db) {
+            case let (lhs?, rhs?):
+                if lhs != rhs { return lhs > rhs }
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                break
+            }
+            // Fallback: сохраняем стабильный порядок
+            let sa = a.0.displayDate ?? ""
+            let sb = b.0.displayDate ?? ""
+            if sa != sb { return sa > sb }
+            let ta = (a.0.type ?? "") + (a.0.description ?? "")
+            let tb = (b.0.type ?? "") + (b.0.description ?? "")
+            return ta > tb
+        }
+
+        // Дедуп, чтобы одно и то же событие не дублировалось разными источниками.
+        var seen = Set<String>()
+        var uniq: [(NormalizedDocument, String)] = []
+        uniq.reserveCapacity(min(sorted.count, limit))
+        for (doc, inst) in sorted {
+            let key = "\(doc.displayDate ?? "")|\(doc.type ?? "")|\(doc.description ?? "")|\(doc.documentId ?? "")|\(inst)"
+            if seen.insert(key).inserted {
+                uniq.append((doc, inst))
+                if uniq.count >= limit { break }
+            }
+        }
+        return uniq.map { (document: $0.0, instanceName: $0.1) }
+    }
+
+    private func parseDocumentDate(_ s: String?) -> Date? {
+        guard let raw = s?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        if let d = raw.toDate() { return d }
+
+        // dd.MM.yy / dd.MM.yyyy (+ optional time)
+        if let m = raw.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yy>\d{2})(?:\s+(?<hh>\d{2}):(?<min>\d{2}))?$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yy = Int(m.yy) else { return nil }
+            let year = 2000 + yy
+            let hh = Int(m.hh ?? "") ?? 12
+            let min = Int(m.min ?? "") ?? 0
+            return buildDate(year: year, month: mm, day: dd, hour: hh, minute: min)
+        }
+        if let m = raw.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yyyy>\d{4})(?:\s+(?<hh>\d{2}):(?<min>\d{2}))?$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yyyy = Int(m.yyyy) else { return nil }
+            let hh = Int(m.hh ?? "") ?? 12
+            let min = Int(m.min ?? "") ?? 0
+            return buildDate(year: yyyy, month: mm, day: dd, hour: hh, minute: min)
+        }
+        return nil
+    }
+
+    private func buildDate(year: Int, month: Int, day: Int, hour: Int, minute: Int) -> Date? {
+        var comps = DateComponents()
+        comps.calendar = Calendar(identifier: .gregorian)
+        comps.timeZone = .current
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        comps.hour = hour
+        comps.minute = minute
+        return comps.date
     }
     
     // MARK: - Tab Picker
@@ -281,33 +414,6 @@ struct CaseDetailView: View {
             ))
         }
         .liquidGlassCard(padding: 20, material: .ultraThinMaterial)
-    }
-    
-    // MARK: - Last Act Section (PDF Preview)
-    
-    @ViewBuilder
-    private func lastActSection(document: NormalizedDocument, caseId: Int) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("Последний судебный акт", systemImage: "doc.richtext")
-                    .font(.headline.weight(.semibold))
-                Spacer()
-            }
-            
-            PDFPreviewCard(document: document, caseId: caseId)
-        }
-        .liquidGlassCard(padding: 20, material: .thinMaterial)
-    }
-    
-    /// Получить последний судебный акт для PDF просмотра
-    private func getLastJudicialAct(detail: NormalizedCaseDetail) -> NormalizedDocument? {
-        // Собираем все судебные акты из всех инстанций
-        let allActs = detail.instances.flatMap { instance in
-            instance.documents.filter { $0.isAct && $0.url != nil && !($0.url?.isEmpty ?? true) }
-        }
-        
-        // Возвращаем первый (самый свежий) или nil
-        return allActs.first
     }
     
     // MARK: - Case Info
@@ -517,7 +623,7 @@ struct CaseDetailView: View {
         } else {
             ForEach(acts, id: \.0.id) { doc, instanceName in
                 DocumentRow(document: doc, subtitle: instanceName) {
-                    openDocument(doc)
+                    openDocument(doc, subtitle: instanceName)
                 }
                 if doc.id != acts.last?.0.id {
                     Divider()
@@ -545,7 +651,7 @@ struct CaseDetailView: View {
                         
                         ForEach(instance.documents.prefix(10)) { doc in
                             DocumentRow(document: doc, subtitle: nil) {
-                                openDocument(doc)
+                                openDocument(doc, subtitle: instance.name)
                             }
                         }
                         
@@ -705,7 +811,7 @@ struct CaseDetailView: View {
             Section {
                 ForEach(acts, id: \.0.id) { doc, instanceName in
                     DocumentRow(document: doc, subtitle: instanceName) {
-                        openDocument(doc)
+                        openDocument(doc, subtitle: instanceName)
                     }
                 }
             }
@@ -744,7 +850,7 @@ struct CaseDetailView: View {
                     Section(instance.name) {
                         ForEach(instance.documents.prefix(20)) { doc in
                             DocumentRow(document: doc, subtitle: nil) {
-                                openDocument(doc)
+                                openDocument(doc, subtitle: instance.name)
                             }
                         }
                     }
@@ -769,25 +875,26 @@ struct CaseDetailView: View {
         }
     }
     
-    private func openDocument(_ doc: NormalizedDocument) {
+    private func openDocument(_ doc: NormalizedDocument, subtitle: String?) {
         // Если есть полный PDF URL - открываем в приложении
         if let pdfURL = doc.pdfURL, !pdfURL.isEmpty {
             selectedPDFDocument = doc
-            showPDFViewer = true
+            if AppConstants.FeatureFlags.preferKadDirectPdf,
+               pdfURL.contains("kad.arbitr.ru/Document/Pdf") {
+                // Show loader immediately; fullScreenCover/Safari view can mount with a white frame.
+                showKadOpeningOverlay = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    showPDFViewer = true
+                    showKadOpeningOverlay = false
+                }
+            } else {
+                showPDFViewer = true
+            }
             return
         }
-        
-        // Если это судебный акт, но нет PDF URL - пробуем открыть карточку дела
-        if doc.isAct {
-            if let link = viewModel.caseDetail?.cardLink ?? viewModel.caseDetail?.link ?? legalCase?.cardLink ?? legalCase?.link {
-                openURL(link)
-            }
-        } else {
-            // Для обычных документов открываем карточку дела
-            if let link = viewModel.caseDetail?.cardLink ?? viewModel.caseDetail?.link ?? legalCase?.cardLink ?? legalCase?.link {
-                openURL(link)
-            }
-        }
+
+        // Для событий/обычных записей без PDF показываем подробный просмотр, а не уводим на сайт суда.
+        selectedDocumentDetails = DocumentDetailsContext(document: doc, subtitle: subtitle)
     }
     
     private func shareCase() {
@@ -870,6 +977,137 @@ struct CaseDetailView: View {
             } catch { print("❌ Note error: \(error)") }
         case .muteSettings:
             break
+        }
+    }
+}
+
+// MARK: - Document Details
+
+private struct DocumentDetailsContext: Identifiable {
+    let document: NormalizedDocument
+    let subtitle: String?
+    var id: UUID { document.id }
+}
+
+private struct DocumentDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let context: DocumentDetailsContext
+    let onOpenCaseLink: () -> Void
+
+    private var title: String {
+        let t = (context.document.type ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "Событие" : t
+    }
+
+    private var mainText: String? {
+        if let content = context.document.content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty {
+            return content
+        }
+        if let desc = context.document.description?.trimmingCharacters(in: .whitespacesAndNewlines), !desc.isEmpty {
+            return desc
+        }
+        return nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Заголовок
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(title)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+
+                        if let subtitle = context.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Метаданные
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let d = context.document.displayDate, !d.isEmpty {
+                            metaRow(label: "Дата", value: d)
+                        }
+                        if let pd = context.document.publishDate, !pd.isEmpty, pd != context.document.displayDate {
+                            metaRow(label: "Публикация", value: pd)
+                        }
+                        if let court = context.document.courtName, !court.isEmpty {
+                            metaRow(label: "Суд", value: court)
+                        }
+                        if !context.document.declarers.isEmpty {
+                            metaRow(label: "Податель", value: context.document.declarers.joined(separator: ", "))
+                        }
+                        if !context.document.judges.isEmpty {
+                            metaRow(label: "Судьи", value: context.document.judges.joined(separator: ", "))
+                        }
+                        if !context.document.contentTypes.isEmpty {
+                            metaRow(label: "Типы", value: context.document.contentTypes.joined(separator: " • "))
+                        }
+                    }
+                    .liquidGlassCard(padding: 16, material: .thinMaterial)
+
+                    // Текст
+                    if let text = mainText {
+                        Text(text)
+                            .font(.body)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .liquidGlassCard(padding: 16, material: .ultraThinMaterial)
+                    } else {
+                        ContentUnavailableView("Нет текста", systemImage: "text.bubble")
+                    }
+
+                    // Действия
+                    VStack(spacing: 10) {
+                        Button {
+                            onOpenCaseLink()
+                        } label: {
+                            Label("Открыть на kad.arbitr.ru", systemImage: "safari")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            let toCopy = mainText ?? title
+                            UIPasteboard.general.string = toCopy
+                        } label: {
+                            Label("Копировать текст", systemImage: "doc.on.doc")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 20)
+            }
+            .navigationTitle("Подробно")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func metaRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 86, alignment: .leading)
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 }
@@ -981,6 +1219,24 @@ struct DocumentRow: View {
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    // ContentTypes из API (часто это единственный "смысл" записи, например для "Письмо")
+                    if !document.contentTypes.isEmpty {
+                        Text(document.contentTypes.joined(separator: " • "))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    // Явный Content (если API присылает текст)
+                    if let content = document.content, !content.isEmpty {
+                        Text(content)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     
                     // Организация-податель (если есть)
                     if !document.declarers.isEmpty {
@@ -1080,6 +1336,81 @@ struct DocumentRow: View {
     }
 }
 
+// MARK: - Recent Event Row (compact)
+
+private struct RecentEventRow: View {
+    let document: NormalizedDocument
+    let subtitle: String?
+    let onTap: () -> Void
+
+    private var title: String {
+        let t = (document.type ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        let d = (document.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !d.isEmpty { return d }
+        return "Событие"
+    }
+
+    private var detailText: String? {
+        let d = (document.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !d.isEmpty { return d }
+        let c = (document.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !c.isEmpty { return c }
+        return nil
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: document.isAct ? "doc.fill" : "doc.text")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        if let dd = document.displayDate, !dd.isEmpty {
+                            Text(dd)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+
+                    if let text = detailText, text != title {
+                        Text(text)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+
+                    if let subtitle = subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - MuteSettingsView
 
 struct MuteSettingsView: View {
@@ -1137,4 +1468,3 @@ struct MuteSettingsView: View {
         ))
     }
 }
-

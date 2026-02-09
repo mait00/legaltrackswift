@@ -10,12 +10,16 @@ import Combine
 
 @MainActor
 final class NotificationsViewModel: ObservableObject {
-    @Published var notifications: [AppNotification] = [] {
-        didSet {
-            recalculateDerivedState()
-        }
+    struct NotificationGroup: Identifiable {
+        let id: Date
+        let title: String
+        let notifications: [AppNotification]
     }
-    @Published private(set) var groupedNotifications: [(date: String, notifications: [AppNotification])] = []
+
+    @Published var notifications: [AppNotification] = [] {
+        didSet { recalculateDerivedState() }
+    }
+    @Published private(set) var groupedNotifications: [NotificationGroup] = []
     @Published var unreadCount: Int = 0
     @Published var isLoading = false
     @Published var isLoadingMore = false
@@ -29,12 +33,66 @@ final class NotificationsViewModel: ObservableObject {
     private let cacheManager = CacheManager.shared
     private let networkMonitor = NetworkMonitor.shared
     private var cancellables = Set<AnyCancellable>()
+    private var readKeys: Set<String>
+    private let calendar = Calendar.current
+
+    private static let metaISO8601WithFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let metaISO8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static let metaFormatters: [DateFormatter] = {
+        func make(_ format: String, locale: Locale = Locale(identifier: "en_US_POSIX")) -> DateFormatter {
+            let f = DateFormatter()
+            f.locale = locale
+            f.calendar = Calendar(identifier: .gregorian)
+            f.timeZone = .current
+            f.isLenient = false
+            f.dateFormat = format
+            // Для форматов с 2-значным годом (yy): интерпретируем 00-99 как 2000-2099.
+            if #available(iOS 15.0, *) {
+                f.twoDigitStartDate = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2000, month: 1, day: 1))
+            }
+            return f
+        }
+        return [
+            make("yyyy-MM-dd'T'HH:mm:ss.SSSZ"),
+            make("yyyy-MM-dd'T'HH:mm:ssZ"),
+            make("yyyy-MM-dd'T'HH:mm:ss"),
+            make("yyyy-MM-dd HH:mm:ss"),
+            make("yyyy-MM-dd HH:mm"),
+            make("yyyy-MM-dd"),
+            // Сервер в примере присылает meta как dd.MM.yy
+            make("dd.MM.yy HH:mm:ss", locale: Locale(identifier: "ru_RU")),
+            make("dd.MM.yy HH:mm", locale: Locale(identifier: "ru_RU")),
+            make("dd.MM.yy", locale: Locale(identifier: "ru_RU")),
+            make("dd.MM.yyyy HH:mm:ss", locale: Locale(identifier: "ru_RU")),
+            make("dd.MM.yyyy HH:mm", locale: Locale(identifier: "ru_RU")),
+            make("dd.MM.yyyy", locale: Locale(identifier: "ru_RU"))
+        ]
+    }()
+
+    private static let dayTitleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
     
     var hasMorePages: Bool {
         currentPage < totalPages
     }
     
     init() {
+        self.readKeys = cacheManager.loadReadNotificationKeys()
         // Подписываемся на уведомления о смене пользователя
         NotificationCenter.default.publisher(for: NSNotification.Name("UserDidLogout"))
             .sink { [weak self] _ in
@@ -58,6 +116,8 @@ final class NotificationsViewModel: ObservableObject {
         errorMessage = nil
         isLoading = false
         isLoadingMore = false
+        readKeys = []
+        cacheManager.clearReadNotificationKeys()
         print("🗑️ [NotificationsViewModel] Data cleared on user change")
     }
     
@@ -91,8 +151,8 @@ final class NotificationsViewModel: ObservableObject {
             
             print("📬 [Notifications] Response received: \(response.data.count) items, page \(response.page ?? 1)/\(response.totalPages ?? 1)")
             
-            // Обновляем данные
-            notifications = response.data
+            // Обновляем данные, сохраняя прочитанность
+            setNotifications(response.data)
             totalPages = response.totalPages ?? 1
             currentPage = response.page ?? 1
             
@@ -135,9 +195,9 @@ final class NotificationsViewModel: ObservableObject {
     private func loadFromCache(page: Int) async -> Bool {
         if let cachedNotifications = await cacheManager.loadCachedNotificationsAsync(page: page) {
             if page == 1 {
-                notifications = cachedNotifications
+                setNotifications(cachedNotifications)
             } else {
-                notifications.append(contentsOf: cachedNotifications)
+                appendNotifications(cachedNotifications)
             }
             print("📦 Loaded \(cachedNotifications.count) notifications (page \(page)) from cache")
             return true
@@ -147,15 +207,11 @@ final class NotificationsViewModel: ObservableObject {
     
     /// Загрузить следующую страницу
     func loadMoreIfNeeded(currentItem: AppNotification) async {
-        // Проверяем, что это последний элемент и есть ещё страницы
-        guard let lastItem = notifications.last,
-              currentItem.id == lastItem.id && currentItem.meta == lastItem.meta,
-              hasMorePages,
-              !isLoadingMore else {
-            return
+        guard hasMorePages, !isLoadingMore else { return }
+        guard let idx = notifications.firstIndex(where: { $0.readKey == currentItem.readKey }) else { return }
+        if idx >= max(0, notifications.count - 5) {
+            await loadMore()
         }
-        
-        await loadMore()
     }
     
     /// Загрузить ещё уведомления
@@ -176,10 +232,10 @@ final class NotificationsViewModel: ObservableObject {
             let response = try decoder.decode(NotificationsResponse.self, from: data)
             
             print("📬 [Notifications] Loaded page \(nextPage): \(response.data.count) items")
-            notifications.append(contentsOf: response.data)
+            appendNotifications(response.data)
             totalPages = response.totalPages ?? totalPages
             currentPage = response.page ?? nextPage
-            await cacheManager.saveNotificationsAsync(response.data, page: nextPage)
+            await cacheManager.saveNotificationsAsync(applyReadState(to: response.data), page: nextPage)
             isLoadingMore = false
             print("✅ [Notifications] Total notifications: \(notifications.count)")
         } catch is CancellationError {
@@ -201,6 +257,10 @@ final class NotificationsViewModel: ObservableObject {
         updatedNotification.isRead = true
         
         notifications[index] = updatedNotification
+        readKeys.insert(updatedNotification.readKey)
+        cacheManager.saveReadNotificationKeys(readKeys)
+        // Перезаписываем кэш первой страницы, чтобы офлайн-режим не терял состояние.
+        await cacheManager.saveNotificationsAsync(Array(notifications.prefix(200)), page: 1)
     }
     
     /// Отметить все как прочитанные
@@ -210,6 +270,9 @@ final class NotificationsViewModel: ObservableObject {
             updated.isRead = true
             return updated
         }
+        readKeys.formUnion(notifications.map(\.readKey))
+        cacheManager.saveReadNotificationKeys(readKeys)
+        await cacheManager.saveNotificationsAsync(Array(notifications.prefix(200)), page: 1)
     }
     
     /// Получить иконку для типа уведомления
@@ -237,8 +300,125 @@ final class NotificationsViewModel: ObservableObject {
             if !notification.isRead { count += 1 }
         }
 
-        let grouped = Dictionary(grouping: notifications) { $0.meta }
-        groupedNotifications = grouped.map { (date: $0.key, notifications: $0.value) }
-            .sorted { $0.date > $1.date }
+        // Группируем по дням из meta-даты (не по строке).
+        var order: [Date] = []
+        var grouped: [Date: [AppNotification]] = [:]
+        var noDate: [AppNotification] = []
+
+        for n in notifications {
+            guard let dt = metaDate(from: n.meta) else {
+                noDate.append(n)
+                continue
+            }
+            let day = calendar.startOfDay(for: dt)
+            if grouped[day] == nil { order.append(day) }
+            grouped[day, default: []].append(n)
+        }
+
+        order.sort(by: >)
+
+        var result: [NotificationGroup] = []
+        result.reserveCapacity(order.count + (noDate.isEmpty ? 0 : 1))
+        for day in order {
+            let items = grouped[day] ?? []
+            result.append(NotificationGroup(id: day, title: Self.dayTitleFormatter.string(from: day), notifications: items))
+        }
+        if !noDate.isEmpty {
+            result.append(NotificationGroup(id: Date.distantPast, title: "Без даты", notifications: noDate))
+        }
+        groupedNotifications = result
+    }
+
+    private func applyReadState(to incoming: [AppNotification]) -> [AppNotification] {
+        // Берем persisted readKeys как источник истины.
+        if readKeys.isEmpty { return incoming }
+        return incoming.map { n in
+            var copy = n
+            if readKeys.contains(n.readKey) { copy.isRead = true }
+            return copy
+        }
+    }
+
+    private func setNotifications(_ items: [AppNotification]) {
+        notifications = normalize(items)
+    }
+
+    private func appendNotifications(_ items: [AppNotification]) {
+        notifications = normalize(notifications + items)
+    }
+
+    private func normalize(_ items: [AppNotification]) -> [AppNotification] {
+        let withRead = applyReadState(to: items)
+        let sorted = withRead.sorted { a, b in
+            let da = metaDate(from: a.meta)
+            let db = metaDate(from: b.meta)
+            switch (da, db) {
+            case let (lhs?, rhs?):
+                if lhs != rhs { return lhs > rhs }
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                break
+            }
+            if a.id != b.id { return a.id > b.id }
+            if a.caseId != b.caseId { return a.caseId > b.caseId }
+            return a.meta > b.meta
+        }
+
+        // Дедуп после сортировки: если сервер/пагинация вернули пересечения, оставляем самый "новый".
+        var seen = Set<String>()
+        seen.reserveCapacity(sorted.count)
+        var uniq: [AppNotification] = []
+        uniq.reserveCapacity(sorted.count)
+        for n in sorted {
+            if seen.insert(n.readKey).inserted {
+                uniq.append(n)
+            }
+        }
+        return uniq
+    }
+
+    private func metaDate(from meta: String) -> Date? {
+        let s = meta.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return nil }
+
+        // Строго разбираем серверный формат meta: dd.MM.yy / dd.MM.yyyy (иначе DateFormatter может "перемешать" компоненты).
+        if let d = parseDotDate(s) { return d }
+
+        if let d = Self.metaISO8601WithFrac.date(from: s) { return d }
+        if let d = Self.metaISO8601.date(from: s) { return d }
+        for f in Self.metaFormatters {
+            if let d = f.date(from: s) { return d }
+        }
+        return nil
+    }
+
+    private func parseDotDate(_ s: String) -> Date? {
+        // dd.MM.yy
+        if let m = s.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yy>\d{2})$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yy = Int(m.yy) else { return nil }
+            let year = 2000 + yy
+            return buildDate(year: year, month: mm, day: dd)
+        }
+        // dd.MM.yyyy
+        if let m = s.wholeMatch(of: /^(?<dd>\d{2})\.(?<mm>\d{2})\.(?<yyyy>\d{4})$/) {
+            guard let dd = Int(m.dd), let mm = Int(m.mm), let yyyy = Int(m.yyyy) else { return nil }
+            return buildDate(year: yyyy, month: mm, day: dd)
+        }
+        return nil
+    }
+
+    private func buildDate(year: Int, month: Int, day: Int) -> Date? {
+        var comps = DateComponents()
+        comps.calendar = Calendar(identifier: .gregorian)
+        comps.timeZone = .current
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        // Полдень, чтобы не ловить "сдвиг дня" при преобразованиях часовых поясов.
+        comps.hour = 12
+        return comps.date
     }
 }

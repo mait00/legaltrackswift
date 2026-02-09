@@ -9,16 +9,20 @@ import SwiftUI
 
 /// Экран уведомлений (iOS 26 Liquid Glass дизайн)
 struct NotificationsView: View {
+    private let title: String
     @StateObject private var viewModel = NotificationsViewModel()
     @State private var selectedCaseId: Int?
     @State private var selectedCompanyId: Int?
     
+    init(title: String = "Уведомления") {
+        self.title = title
+    }
+
+    private var isFeed: Bool { title == "Лента" }
+
     var body: some View {
         NavigationStack {
-            ZStack {
-                LiquidGlassBackground()
-                
-                List {
+            List {
                 if viewModel.isLoading {
                     Section {
                         HStack {
@@ -35,14 +39,14 @@ struct NotificationsView: View {
                 } else if viewModel.notifications.isEmpty {
                     Section {
                         ContentUnavailableView(
-                            "Нет уведомлений",
-                            systemImage: "bell.slash",
-                            description: Text("Здесь будут появляться уведомления о важных событиях")
+                            isFeed ? "Нет событий" : "Нет уведомлений",
+                            systemImage: isFeed ? "clock" : "bell.slash",
+                            description: Text(isFeed ? "Здесь будет появляться лента недавних обновлений" : "Здесь будут появляться уведомления о важных событиях")
                         )
                     }
                 } else {
                     // Группируем уведомления по датам
-                    ForEach(viewModel.groupedNotifications, id: \.date) { group in
+                    ForEach(viewModel.groupedNotifications) { group in
                         Section {
                             ForEach(group.notifications, id: \.self) { notification in
                                 NotificationRow(
@@ -58,7 +62,7 @@ struct NotificationsView: View {
                                 }
                             }
                         } header: {
-                            Text(group.date)
+                            Text(group.title)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -87,16 +91,9 @@ struct NotificationsView: View {
                     }
                 }
                 }
-            }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 0) }
-            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
-            .navigationTitle("Мои подписки")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .refreshable {
                 await viewModel.loadNotifications()
             }
@@ -184,113 +181,52 @@ struct NotificationRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(alignment: .top, spacing: 12) {
-                // Иконка типа с градиентом
                 ZStack {
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [iconBackgroundColor, iconBackgroundColor.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 44, height: 44)
-                        .shadow(color: iconBackgroundColor.opacity(0.3), radius: 8, x: 0, y: 4)
-
+                        .fill(iconBackgroundColor.opacity(0.18))
+                        .frame(width: 32, height: 32)
                     Image(systemName: viewModel.iconForType(notification.type))
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(iconBackgroundColor)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    // Заголовок с индикатором
-                    HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(notification.textHeader)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(notification.isRead ? .secondary : .primary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
 
-                        Spacer(minLength: 4)
-
-                        // Индикатор непрочитанного
                         if !notification.isRead {
                             Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color.red, Color.red.opacity(0.8)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 10, height: 10)
-                                .shadow(color: Color.red.opacity(0.5), radius: 3, x: 0, y: 1)
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
                         }
                     }
 
-                    // Основной текст
-                    Text(notification.text)
-                        .font(.subheadline)
+                    Text(notification.textSubHeader.isEmpty ? notification.text : notification.textSubHeader)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
 
-                    // Подзаголовок (если есть)
                     if !notification.textSubHeader.isEmpty {
-                        Text(notification.textSubHeader)
-                            .font(.caption)
+                        Text(notification.text)
+                            .font(.caption2)
                             .foregroundStyle(.tertiary)
-                    }
-
-                    // Нижняя строка с меткой типа и документом
-                    HStack(spacing: 8) {
-                        // Метка типа
-                        Text(typeLabel)
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(iconBackgroundColor)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(iconBackgroundColor.opacity(0.15), in: Capsule())
-
-                        // Иконка документа
-                        if notification.hasDocument {
-                            HStack(spacing: 4) {
-                                Image(systemName: "doc.fill")
-                                    .font(.caption2)
-                                Text("Документ")
-                                    .font(.caption2.weight(.medium))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.orange, Color.orange.opacity(0.8)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                ),
-                                in: Capsule()
-                            )
-                            .shadow(color: Color.orange.opacity(0.3), radius: 4, x: 0, y: 2)
-                        }
-
-                        Spacer(minLength: 0)
+                            .lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                if notification.hasDocument {
+                    Image(systemName: "doc")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .padding(.top, 2)
+                }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(iconBackgroundColor.opacity(0.05))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                iconBackgroundColor.opacity(notification.isRead ? 0.1 : 0.2),
-                                lineWidth: 1
-                            )
-                    )
-            )
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -298,20 +234,12 @@ struct NotificationRow: View {
     private var iconBackgroundColor: Color {
         switch notification.type {
         case .company:
-            return .purple
+            return AppColors.secondary
         case .caseType:
-            return .blue
+            return AppColors.primary
         }
     }
 
-    private var typeLabel: String {
-        switch notification.type {
-        case .company:
-            return "Компания"
-        case .caseType:
-            return "Дело"
-        }
-    }
 }
 
 #Preview {

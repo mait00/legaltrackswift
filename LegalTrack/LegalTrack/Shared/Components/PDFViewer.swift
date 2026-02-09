@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PDFKit
+import SafariServices
 
 /// Встраиваемый просмотрщик PDF (используя PDFKit)
 struct PDFViewer: UIViewRepresentable {
@@ -589,6 +590,7 @@ struct PDFFullScreenViewer: View {
             publishDate: "24.12.2016",
             type: "Решение",
             description: "Мотивированное решение по делу, рассмотренному в порядке упрощенного производства",
+            content: nil,
             judges: ["Чекмарев Г. С."],
             declarers: [],
             decision: "Иск удовлетворить полностью",
@@ -604,3 +606,123 @@ struct PDFFullScreenViewer: View {
     .padding()
 }
 
+// MARK: - Safari (kad.arbitr.ru fallback)
+
+/// More reliable than WKWebView for kad.arbitr.ru (ddos/captcha, window.open, etc.).
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    @Binding var isLoading: Bool
+    @Binding var initialLoadError: Bool
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let vc = SFSafariViewController(url: url)
+        vc.dismissButtonStyle = .close
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
+        // No-op
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isLoading: $isLoading, initialLoadError: $initialLoadError)
+    }
+
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        private let isLoading: Binding<Bool>
+        private let initialLoadError: Binding<Bool>
+        private let startedAt: Date
+        private let minLoaderSeconds: TimeInterval = 0.8
+
+        init(isLoading: Binding<Bool>, initialLoadError: Binding<Bool>) {
+            self.isLoading = isLoading
+            self.initialLoadError = initialLoadError
+            self.startedAt = Date()
+        }
+
+        func safariViewController(_ controller: SFSafariViewController, didCompleteInitialLoad didLoadSuccessfully: Bool) {
+            let elapsed = Date().timeIntervalSince(startedAt)
+            let delay = max(0, minLoaderSeconds - elapsed)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.isLoading.wrappedValue = false
+                self.initialLoadError.wrappedValue = !didLoadSuccessfully
+            }
+        }
+
+        func safariViewController(_ controller: SFSafariViewController, initialLoadDidRedirectTo URL: URL) {
+            // Keep the loader logic stable; redirects are common on kad.arbitr.ru (ddos/captcha).
+        }
+    }
+}
+
+struct SafariPDFScreen: View {
+    let url: URL
+    let title: String
+
+    @State private var isLoading = true
+    @State private var initialLoadError = false
+    @State private var showSafari = false
+
+    var body: some View {
+        ZStack {
+            // Remote Safari view can take a moment to attach; mount it after a short delay
+            // so the user sees our loader immediately instead of a blank/white frame.
+            if showSafari {
+                SafariView(url: url, isLoading: $isLoading, initialLoadError: $initialLoadError)
+                    .ignoresSafeArea()
+            } else {
+                Color.black.opacity(0.02).ignoresSafeArea()
+            }
+
+            if isLoading {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Загружаем документ…")
+                            .font(.headline)
+                        Text("Сайт kad.arbitr.ru может показывать проверку (капчу). Если появится, пройди её и подожди загрузку PDF.")
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 18)
+                    }
+                    .padding(18)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 24)
+                }
+                .transition(.opacity)
+            } else if initialLoadError {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        Text("Не удалось загрузить страницу")
+                            .font(.headline)
+                        Text("Закрой экран кнопкой X сверху и попробуй открыть документ ещё раз.")
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 18)
+                    }
+                    .padding(18)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 24)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isLoading)
+        .onAppear {
+            // Ensure loader is visible immediately on presentation.
+            isLoading = true
+            initialLoadError = false
+            showSafari = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                showSafari = true
+            }
+        }
+    }
+}
