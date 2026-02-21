@@ -55,6 +55,7 @@ struct NotificationsView: View {
                                 ) {
                                     handleNotificationTap(notification)
                                 }
+                                .appListCardRow()
                                 .onAppear {
                                     Task {
                                         await viewModel.loadMoreIfNeeded(currentItem: notification)
@@ -91,7 +92,7 @@ struct NotificationsView: View {
                     }
                 }
                 }
-            .listStyle(.insetGrouped)
+            .appListScreenStyle()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
@@ -193,7 +194,7 @@ struct NotificationRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(notification.textHeader)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(notification.isRead ? .secondary : .primary)
                             .lineLimit(1)
 
@@ -205,13 +206,13 @@ struct NotificationRow: View {
                     }
 
                     Text(notification.textSubHeader.isEmpty ? notification.text : notification.textSubHeader)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
 
                     if !notification.textSubHeader.isEmpty {
                         Text(notification.text)
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
@@ -225,7 +226,9 @@ struct NotificationRow: View {
                         .padding(.top, 2)
                 }
             }
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .appCardSurface(cornerRadius: 14)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -25,12 +25,12 @@ final class DelaysViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let profile: UserProfileResponse = try await apiService.request(
-                endpoint: APIEndpoint.getProfile.path,
+            let tariff: TariffsResponse = try await apiService.request(
+                endpoint: APIEndpoint.getUserTarif.path,
                 method: .get
             )
 
-            let tarifActive = profile.data?.isTarifActive ?? false
+            let tarifActive = tariff.data?.active ?? false
             isTarifActive = tarifActive
 
             guard tarifActive else {
@@ -198,4 +198,3 @@ enum DelayFormatting {
         return df
     }()
 }
-

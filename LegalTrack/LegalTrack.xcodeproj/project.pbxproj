@@ -11,6 +11,9 @@
 		78956B073D0B5004D0137A63 /* WebPDFViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9808A0DE28A067578FFA4D12 /* WebPDFViewer.swift */; };
 		87F6216F0247C7B9A979944B /* DelaysView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A42B80C7C44225DCBE0E01B /* DelaysView.swift */; };
 		B9F13750862BC74C29569E7E /* DelaysViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6661067D2D427A2AAEB4D7 /* DelaysViewModel.swift */; };
+		CB1E5449F60D7B3C9B83CCE8 /* TariffsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3D26BD32328EB0466167F2 /* TariffsView.swift */; };
+		D6AF94E9CF28347128A072D8 /* TariffsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE59E2CABFEF4F60B42A4D0B /* TariffsViewModel.swift */; };
+		DD0C71B9578DEB6B1C94DE3A /* Localizable.strings (ru) in Resources */ = {isa = PBXBuildFile; fileRef = 55D652A60DD2ACDAD5933ACE /* Localizable.strings (ru) */; };
 		A1NV8JT1ZXSOMHIMGX0XO10V /* AddCompanyViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1NV8JT1ZXSOMHIMGX0XO10U /* AddCompanyViewModel.swift */; };
 		A500B4A42F2165C3009ED6C2 /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = A500B4A32F2165C3009ED6C2 /* OneSignalExtension */; };
 		A500B4A62F2165C3009ED6C2 /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = A500B4A52F2165C3009ED6C2 /* OneSignalFramework */; };
@@ -74,11 +77,14 @@
 /* Begin PBXFileReference section */
 		21AAE664307048EF8EEFEBDA /* RussianPhoneTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RussianPhoneTextField.swift; sourceTree = "<group>"; };
 		9808A0DE28A067578FFA4D12 /* WebPDFViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WebPDFViewer.swift; path = WebPDFViewer.swift; sourceTree = "<group>"; };
+		55D652A60DD2ACDAD5933ACE /* Localizable.strings (ru) */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
 		A1NV8JT1ZXSOMHIMGX0XO10U /* AddCompanyViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddCompanyViewModel.swift; sourceTree = "<group>"; };
 		A500B4AB2F220114009ED6C2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A51934802F215E1200163FA3 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		A51934822F215E4000163FA3 /* SearchView 2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchView 2.swift"; sourceTree = "<group>"; };
+		7D3D26BD32328EB0466167F2 /* TariffsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TariffsView.swift; sourceTree = "<group>"; };
 		5A42B80C7C44225DCBE0E01B /* DelaysView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelaysView.swift; sourceTree = "<group>"; };
+		CE59E2CABFEF4F60B42A4D0B /* TariffsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TariffsViewModel.swift; sourceTree = "<group>"; };
 		FE6661067D2D427A2AAEB4D7 /* DelaysViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelaysViewModel.swift; sourceTree = "<group>"; };
 		A55AD9E02F0B10980014916F /* LegalTrackApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalTrackApp.swift; sourceTree = "<group>"; };
 		A55AD9E32F0B10980014916F /* Case.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Case.swift; sourceTree = "<group>"; };
@@ -507,6 +513,7 @@
 		A55ADA202F0B10980014916F /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				CE59E2CABFEF4F60B42A4D0B /* TariffsViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -514,6 +521,7 @@
 		A55ADA212F0B10980014916F /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				7D3D26BD32328EB0466167F2 /* TariffsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -742,9 +750,10 @@
 			};
 			buildConfigurationList = ROOT_CONFIG_LIST /* Build configuration list for PBXProject "LegalTrack" */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
+			developmentRegion = ru;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				ru,
 				en,
 				Base,
 			);
@@ -770,6 +779,7 @@
 				A55ADA502F0B10980014916F /* Assets.xcassets in Resources */,
 				A5E9228F2F214D88003212A3 /* CHANGELOG_ADD_CASE_FIX.md in Resources */,
 				A5E922912F214F0B003212A3 /* CHANGELOG_ADD_CASE.md in Resources */,
+				DD0C71B9578DEB6B1C94DE3A /* Localizable.strings (ru) in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -785,6 +795,8 @@
 				A55ADA352F0B10980014916F /* MonitoringViewModel.swift in Sources */,
 				B9F13750862BC74C29569E7E /* DelaysViewModel.swift in Sources */,
 				87F6216F0247C7B9A979944B /* DelaysView.swift in Sources */,
+				D6AF94E9CF28347128A072D8 /* TariffsViewModel.swift in Sources */,
+				CB1E5449F60D7B3C9B83CCE8 /* TariffsView.swift in Sources */,
 				A51934832F215E4000163FA3 /* SearchView 2.swift in Sources */,
 				A55ADA532F0B10980014916F /* CalendarViewModel.swift in Sources */,
 				A55ADA552F0B10980014916F /* NotificationsViewModel.swift in Sources */,
@@ -854,6 +866,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Лигал.Трэк";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Мы используем геолокацию, чтобы показывать результаты и данные, релевантные вашему региону.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -887,6 +900,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Лигал.Трэк";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Мы используем геолокацию, чтобы показывать результаты и данные, релевантные вашему региону.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

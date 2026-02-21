@@ -64,13 +64,19 @@ final class ProfileViewModel: ObservableObject {
             
             if let userData = response.data {
                 self.user = userData
-                self.firstName = userData.firstName ?? ""
-                self.lastName = userData.lastName ?? ""
-                self.email = userData.email ?? ""
-                self.phone = userData.phone ?? ""
+                self.firstName = (userData.firstName ?? "").personNameCased()
+                self.lastName = (userData.lastName ?? "").personNameCased()
+                self.email = userData.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                self.phone = userData.phone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if let type = userData.type {
                     self.userType = UserType(rawValue: type) ?? .lawyer
                 }
+
+                // Keep local user in sync with normalized fields for correct display.
+                self.user?.firstName = self.firstName
+                self.user?.lastName = self.lastName
+                self.user?.email = self.email
+                self.user?.phone = self.phone
                 
                 print("✅ [Profile] Loaded profile: \(fullName), type: \(userType.displayName), email: \(email)")
                 isLoading = false
@@ -80,6 +86,10 @@ final class ProfileViewModel: ObservableObject {
                 isLoading = false
                 errorMessage = "Не удалось загрузить данные профиля"
             }
+        } catch is CancellationError {
+            isLoading = false
+            // Игнорируем отмену (например, при повторном refresh), чтобы не пугать пользователя ложной ошибкой.
+            errorMessage = nil
         } catch {
             isLoading = false
             print("❌ [Profile] Load profile error: \(error)")
@@ -97,34 +107,53 @@ final class ProfileViewModel: ObservableObject {
         isSaving = true
         errorMessage = nil
         successMessage = nil
+
+        let normalizedFirstName = firstName.personNameCased()
+        let normalizedLastName = lastName.personNameCased()
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         
         do {
-            let request = EditProfilePayload(
-                firstName: firstName,
-                lastName: lastName,
-                email: email,
+            let endpoint = APIEndpoint.editProfile(
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName,
+                email: normalizedEmail,
                 type: userType.rawValue
             )
-            
-            let _: SimpleResponse = try await apiService.request(
-                endpoint: APIEndpoint.editProfile(firstName: firstName, lastName: lastName, email: email, type: userType.rawValue).path,
+
+            let response: SimpleResponse = try await apiService.request(
+                endpoint: endpoint.path,
                 method: .post,
-                body: request
+                body: endpoint.body
             )
+
+            if response.success == false {
+                throw APIError.serverError(message: response.message ?? "Не удалось сохранить профиль")
+            }
+            if let status = response.status?.lowercased(),
+               ["error", "failed", "failure"].contains(status) {
+                throw APIError.serverError(message: response.message ?? "Не удалось сохранить профиль")
+            }
             
             isSaving = false
             successMessage = "Профиль сохранён"
             
             // Обновляем локальные данные
-            user?.firstName = firstName
-            user?.lastName = lastName
-            user?.email = email
+            firstName = normalizedFirstName
+            lastName = normalizedLastName
+            email = normalizedEmail
+            user?.firstName = normalizedFirstName
+            user?.lastName = normalizedLastName
+            user?.email = normalizedEmail
             user?.type = userType.rawValue
             
             return true
         } catch {
             isSaving = false
-            errorMessage = "Не удалось сохранить профиль"
+            if let apiError = error as? APIError {
+                errorMessage = apiError.errorDescription ?? "Не удалось сохранить профиль"
+            } else {
+                errorMessage = "Не удалось сохранить профиль: \(error.localizedDescription)"
+            }
             print("❌ Save profile error: \(error)")
             return false
         }
@@ -138,22 +167,29 @@ final class ProfileViewModel: ObservableObject {
     
     /// Полное имя пользователя
     var fullName: String {
-        let first = firstName.trimmingCharacters(in: .whitespaces)
-        let last = lastName.trimmingCharacters(in: .whitespaces)
-        if first.isEmpty && last.isEmpty {
-            return "Пользователь"
+        let first = firstName.personNameCased()
+        let last = lastName.personNameCased()
+        let joined = [first, last].filter { !$0.isEmpty }.joined(separator: " ")
+        if !joined.isEmpty { return joined }
+
+        // Fallbacks when backend didn't return names.
+        if let phone = phone.trimmedNonEmpty() {
+            return phone.formattedPhone()
         }
-        return "\(first) \(last)".trimmingCharacters(in: .whitespaces)
+        if let email = email.trimmedNonEmpty() {
+            return email
+        }
+        return "Пользователь"
     }
     
     /// Инициалы пользователя
     var initials: String {
-        let first = firstName.first.map { String($0).uppercased() } ?? ""
-        let last = lastName.first.map { String($0).uppercased() } ?? ""
-        if first.isEmpty && last.isEmpty {
-            return "?"
-        }
-        return "\(first)\(last)"
+        let first = firstName.personNameCased()
+        let last = lastName.personNameCased()
+        let f = first.first.map { String($0).uppercased() } ?? ""
+        let l = last.first.map { String($0).uppercased() } ?? ""
+        if !f.isEmpty || !l.isEmpty { return "\(f)\(l)" }
+        return "?"
     }
     
     /// Тариф активен
@@ -169,12 +205,12 @@ final class ProfileViewModel: ObservableObject {
 
 // MARK: - Response Models
 
-struct UserProfileResponse: Codable {
+struct UserProfileResponse: Decodable {
     let message: String?
     let data: UserProfile?
 }
 
-struct UserProfile: Codable {
+struct UserProfile: Decodable {
     let id: Int?
     var firstName: String?
     var lastName: String?
@@ -196,8 +232,65 @@ struct UserProfile: Codable {
         case joinedAt = "joined_at"
         case practiceAvailable = "practice_available"
         case isTarifActive = "is_tarif_active"
+        case isTariffActive = "is_tariff_active"
         case blockBannerTarif = "block_banner_tarif"
     }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = try decoder.container(keyedBy: DynamicCodingKeys.self)
+
+        id = try c.decodeIfPresent(Int.self, forKey: .id)
+        firstName = try c.decodeIfPresent(String.self, forKey: .firstName)
+        lastName = try c.decodeIfPresent(String.self, forKey: .lastName)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
+        type = try c.decodeIfPresent(String.self, forKey: .type)
+        pushId = try c.decodeIfPresent(String.self, forKey: .pushId)
+        joinedAt = try c.decodeIfPresent(String.self, forKey: .joinedAt)
+
+        // Some backends may return `firstName/lastName`, or `name/surname`.
+        func decodeAnyString(_ keys: [String]) -> String? {
+            for k in keys {
+                guard let key = DynamicCodingKeys(stringValue: k) else { continue }
+                if let v = try? d.decodeIfPresent(String.self, forKey: key) {
+                    if let s = v.trimmedNonEmpty() { return s }
+                }
+            }
+            return nil
+        }
+
+        if firstName?.trimmedNonEmpty() == nil {
+            firstName = decodeAnyString(["firstName", "firstname", "name", "given_name", "givenName"])
+        }
+        if lastName?.trimmedNonEmpty() == nil {
+            lastName = decodeAnyString(["lastName", "lastname", "surname", "family_name", "familyName"])
+        }
+
+        // Backend sometimes returns these flags as Bool, 0/1, or "0"/"1".
+        func decodeFlexibleBool(_ key: CodingKeys) -> Bool? {
+            if let b = try? c.decodeIfPresent(Bool.self, forKey: key) { return b }
+            if let i = try? c.decodeIfPresent(Int.self, forKey: key) { return i != 0 }
+            if let s = try? c.decodeIfPresent(String.self, forKey: key) {
+                let v = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if ["1", "true", "yes"].contains(v) { return true }
+                if ["0", "false", "no"].contains(v) { return false }
+            }
+            return nil
+        }
+
+        practiceAvailable = decodeFlexibleBool(.practiceAvailable)
+        // Some backends use `is_tariff_active` (double "f").
+        isTarifActive = decodeFlexibleBool(.isTarifActive) ?? decodeFlexibleBool(.isTariffActive)
+        blockBannerTarif = decodeFlexibleBool(.blockBannerTarif)
+    }
+}
+
+private struct DynamicCodingKeys: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+    init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+    init?(intValue: Int) { return nil }
 }
 
 struct SimpleResponse: Codable {
@@ -205,4 +298,3 @@ struct SimpleResponse: Codable {
     let success: Bool?
     let status: String?
 }
-

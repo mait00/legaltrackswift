@@ -7,6 +7,27 @@
 
 import Foundation
 
+// API often returns `is_sou` in mixed types (Bool/Int/String). Keep decoding tolerant.
+extension KeyedDecodingContainer {
+    func decodeBoolLikeIfPresent(forKey key: Key) -> Bool? {
+        if let boolValue = try? decodeIfPresent(Bool.self, forKey: key) {
+            return boolValue
+        }
+        if let intValue = try? decodeIfPresent(Int.self, forKey: key) {
+            return intValue != 0
+        }
+        if let stringValue = try? decodeIfPresent(String.self, forKey: key) {
+            let normalized = stringValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalized.isEmpty { return nil }
+            if normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "y" { return true }
+            if normalized == "0" || normalized == "false" || normalized == "no" || normalized == "n" { return false }
+        }
+        return nil
+    }
+}
+
 private let isCaseModelVerboseLoggingEnabled = false
 
 private func caseModelDebugLog(_ message: @autoclosure () -> String) {
@@ -169,6 +190,7 @@ extension LegalCase: Hashable {
 extension LegalCase: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let dynamic = try decoder.container(keyedBy: DynamicCodingKeys.self)
         
         id = try container.decode(Int.self, forKey: .id)
         title = try container.decodeIfPresent(String.self, forKey: .title)
@@ -181,12 +203,12 @@ extension LegalCase: Codable {
         companyId = try container.decodeIfPresent(Int.self, forKey: .companyId)
         lastEvent = try container.decodeIfPresent(String.self, forKey: .lastEvent)
         totalEvets = try container.decodeIfPresent(String.self, forKey: .totalEvets)
-        subscribed = try container.decodeIfPresent(Bool.self, forKey: .subscribed)
+        subscribed = container.decodeBoolLikeIfPresent(forKey: .subscribed)
         mutedSide = try container.decodeIfPresent([String].self, forKey: .mutedSide)
-        mutedAll = try container.decodeIfPresent(Bool.self, forKey: .mutedAll)
+        mutedAll = container.decodeBoolLikeIfPresent(forKey: .mutedAll)
         new = try container.decodeIfPresent(Int.self, forKey: .new)
         folder = try container.decodeIfPresent(String.self, forKey: .folder)
-        favorites = try container.decodeIfPresent(Bool.self, forKey: .favorites)
+        favorites = container.decodeBoolLikeIfPresent(forKey: .favorites)
         cardLink = try container.decodeIfPresent(String.self, forKey: .cardLink)
         link = try container.decodeIfPresent(String.self, forKey: .link)
         
@@ -206,8 +228,23 @@ extension LegalCase: Codable {
             caseModelDebugLog("⚠️ [LegalCase] sideDf is nil for case \(value ?? "unknown")")
         }
         
-        courtName = try container.decodeIfPresent(String.self, forKey: .courtName)
+        let decodedCourtName = try container.decodeIfPresent(String.self, forKey: .courtName)
         city = try container.decodeIfPresent(String.self, forKey: .city)
+
+        // Some APIs send the last court under different keys.
+        func decodeAnyString(_ keys: [String]) -> String? {
+            for k in keys {
+                guard let key = DynamicCodingKeys(stringValue: k) else { continue }
+                if let v = try? dynamic.decodeIfPresent(String.self, forKey: key) {
+                    let s = v.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !s.isEmpty { return s }
+                }
+            }
+            return nil
+        }
+        let dynamicCourtName = decodeAnyString(["court", "courtName", "court_name", "court-name", "last_court", "lastCourt"])
+        let trimmedDecodedCourt = decodedCourtName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        courtName = (trimmedDecodedCourt?.isEmpty == false) ? trimmedDecodedCourt : dynamicCourtName
         
         // Декодируем is_sou с поддержкой разных типов (Bool, Int, String)
         if let boolValue = try? container.decodeIfPresent(Bool.self, forKey: .isSouRaw) {
@@ -220,6 +257,13 @@ extension LegalCase: Codable {
             isSouRaw = nil
         }
     }
+}
+
+private struct DynamicCodingKeys: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+    init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+    init?(intValue: Int) { return nil }
 }
 
 /// Модель компании
@@ -651,7 +695,7 @@ struct CaseDetailData: Codable {
         value = try container.decodeIfPresent(String.self, forKey: .value)
         status = try container.decodeIfPresent(String.self, forKey: .status)
         statusKind = try container.decodeIfPresent(String.self, forKey: .statusKind)
-        isSou = try container.decodeIfPresent(Bool.self, forKey: .isSou)
+        isSou = container.decodeBoolLikeIfPresent(forKey: .isSou)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         kind = try container.decodeIfPresent(String.self, forKey: .kind)
         courts = try container.decodeIfPresent(String.self, forKey: .courts)
@@ -1016,6 +1060,25 @@ struct NormalizedDocument: Identifiable {
 // MARK: - NormalizedCaseDetail Extension
 
 extension NormalizedCaseDetail {
+    private static func inferIsSou(from caseNumber: String?) -> Bool {
+        guard let caseNumber, !caseNumber.isEmpty else { return false }
+
+        // Match patterns used in LegalCase.isSou (list screen fallback).
+        // Arbitration: "А40-XXXXX/YYYY" (starts with А/A + digits + "-")
+        let arbPattern = "^[АA]\\d+-"
+        if caseNumber.range(of: arbPattern, options: .regularExpression) != nil {
+            return false
+        }
+
+        // SOU: usually "2-1234/2024" (digits-digits/digits)
+        let souPattern = "^\\d+-\\d+/\\d+"
+        if caseNumber.range(of: souPattern, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
+    }
+
     /// Инициализация из CaseDetailData (ответ API)
     init(from data: CaseDetailData) {
         self.id = data.id ?? 0
@@ -1028,7 +1091,14 @@ extension NormalizedCaseDetail {
         self.judge = data.judgeName // Для СОЮ дел берем напрямую из API
         self.status = data.status
         self.duration = data.caseDur
-        self.isSou = data.isSou ?? false
+        let inferredIsSou = Self.inferIsSou(from: data.caseNumber ?? data.value ?? data.name)
+        if let apiIsSou = data.isSou {
+            // Some backends omit or misreport `is_sou` in detail responses; trust inference when it
+            // clearly indicates SOU.
+            self.isSou = apiIsSou || inferredIsSou
+        } else {
+            self.isSou = inferredIsSou
+        }
         self.link = data.link
         self.cardLink = data.cardLink
         

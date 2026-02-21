@@ -14,6 +14,7 @@ final class APIService {
     private let baseURL: String
     private let session: URLSession
     private var authToken: String?
+    private let decodeQueue = DispatchQueue(label: "APIService.decode", qos: .userInitiated)
     
     private init() {
         self.baseURL = AppConstants.API.baseURL
@@ -46,9 +47,7 @@ final class APIService {
         body: Encodable? = nil
     ) async throws -> T {
         let data = try await requestData(endpoint: endpoint, method: method, body: body)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decode(T.self, from: data, using: decoder)
+        return try await decodeOnBackground(T.self, from: data)
     }
 
     /// Выполнить запрос и вернуть сырые данные ответа
@@ -84,6 +83,8 @@ final class APIService {
                 throw APIError.networkError("Превышено время ожидания. Проверьте интернет соединение")
             case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost:
                 throw APIError.networkError("Нет соединения с сервером. Проверьте интернет")
+            case .cancelled:
+                throw CancellationError()
             default:
                 throw APIError.networkError(urlError.localizedDescription)
             }
@@ -134,6 +135,24 @@ final class APIService {
         } catch {
             debugLog("❌ Decoding failed for \(String(describing: T.self)): \(error.localizedDescription)")
             throw APIError.decodingError
+        }
+    }
+
+    private func decodeOnBackground<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            decodeQueue.async {
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                do {
+                    let value = try decoder.decode(T.self, from: data)
+                    continuation.resume(returning: value)
+                } catch {
+                    #if DEBUG
+                    print("❌ Decoding failed for \(String(describing: T.self)): \(error.localizedDescription)")
+                    #endif
+                    continuation.resume(throwing: APIError.decodingError)
+                }
+            }
         }
     }
 

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 /// ViewModel для компаний
 @MainActor
@@ -93,6 +94,49 @@ final class CompaniesViewModel: ObservableObject {
                 // Если кэш уже показан - не показываем ошибку
                 errorMessage = nil
             }
+        }
+    }
+
+    /// Удалить компанию из мониторинга
+    func deleteCompany(_ company: Company) async -> Bool {
+        struct DeleteResponse: Codable {
+            let success: Bool?
+            let status: String?
+            let message: String?
+        }
+
+        errorMessage = nil
+        let id = company.id
+
+        do {
+            let endpoint = APIEndpoint.deleteSubscription(id: id, type: "company").path
+            let response: DeleteResponse = try await apiService.request(
+                endpoint: endpoint,
+                method: .get
+            )
+
+            let status = response.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let message = response.message?.lowercased() ?? ""
+            let isSuccess = response.success == true
+                || status == "success"
+                || message.contains("успех")
+                || (message.contains("подписк") && message.contains("удален"))
+
+            if isSuccess {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    companies.removeAll { $0.id == id }
+                }
+                await cacheManager.saveCompaniesAsync(companies)
+                return true
+            } else {
+                errorMessage = response.message ?? "Не удалось удалить компанию"
+                return false
+            }
+        } catch is CancellationError {
+            return false
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
     

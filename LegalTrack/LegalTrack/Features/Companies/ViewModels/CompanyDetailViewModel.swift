@@ -92,6 +92,7 @@ final class CompanyDetailViewModel: ObservableObject {
     @Published private(set) var company: Company?
     @Published private(set) var cases: [CompanyCase] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var isDeleting = false
     @Published private(set) var errorMessage: String?
     
     private let apiService = APIService.shared
@@ -175,6 +176,46 @@ final class CompanyDetailViewModel: ObservableObject {
         }
     }
 
+    /// Удалить компанию из мониторинга
+    func deleteCompany(companyId: Int) async -> Bool {
+        struct DeleteResponse: Codable {
+            let success: Bool?
+            let status: String?
+            let message: String?
+        }
+
+        errorMessage = nil
+        isDeleting = true
+        defer { isDeleting = false }
+
+        do {
+            let endpoint = APIEndpoint.deleteSubscription(id: companyId, type: "company").path
+            let response: DeleteResponse = try await apiService.request(
+                endpoint: endpoint,
+                method: .get
+            )
+
+            let status = response.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let message = response.message?.lowercased() ?? ""
+            let isSuccess = response.success == true
+                || status == "success"
+                || message.contains("успех")
+                || (message.contains("подписк") && message.contains("удален"))
+
+            if isSuccess {
+                return true
+            } else {
+                errorMessage = response.message ?? "Не удалось удалить компанию"
+                return false
+            }
+        } catch is CancellationError {
+            return false
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     private func sortCompanyCases(_ items: [CompanyCase]) -> [CompanyCase] {
         items.sorted { a, b in
             let da = companyCaseDate(a)
@@ -227,4 +268,3 @@ final class CompanyDetailViewModel: ObservableObject {
         return comps.date
     }
 }
-

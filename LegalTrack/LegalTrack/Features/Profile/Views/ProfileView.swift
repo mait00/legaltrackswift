@@ -13,11 +13,12 @@ struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @State private var isEditing = false
     @State private var showLogoutAlert = false
+    @State private var showTariffs = false
     
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                AppColors.groupedBackground
                     .ignoresSafeArea()
                 
                 ScrollView {
@@ -63,7 +64,7 @@ struct ProfileView: View {
             .navigationTitle("Профиль")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         withAnimation(.spring(response: 0.3)) {
                             if isEditing {
@@ -93,10 +94,27 @@ struct ProfileView: View {
             .refreshable {
                 await viewModel.loadProfile()
             }
+            .navigationDestination(isPresented: $showTariffs) {
+                TariffsView()
+            }
+        }
+        .onDisappear {
+            resetEditingState()
         }
         .task {
             await viewModel.loadProfile()
+            appState.refreshUserProfile()
         }
+    }
+
+    private func resetEditingState() {
+        guard isEditing else { return }
+        if let user = viewModel.user {
+            viewModel.firstName = user.firstName ?? ""
+            viewModel.lastName = user.lastName ?? ""
+            viewModel.email = user.email ?? ""
+        }
+        isEditing = false
     }
     
     // MARK: - Profile Header
@@ -378,6 +396,16 @@ struct ProfileView: View {
                 .padding(.horizontal, 4)
             
             VStack(spacing: 0) {
+                ProfileActionRow(
+                    icon: "creditcard",
+                    title: appState.isTariffActiveEffective ? "Тариф: активен" : "Тариф: бесплатный",
+                    color: AppColors.secondary
+                ) {
+                    showTariffs = true
+                }
+
+                Divider().padding(.leading, 56)
+
                 ProfileActionRow(
                     icon: "questionmark.circle",
                     title: "Помощь",

@@ -40,7 +40,7 @@ struct CalendarEvent: Codable, Identifiable {
         head = try container.decode(String.self, forKey: .head)
         secondLine = try container.decode(String.self, forKey: .secondLine)
         thirdLine = try container.decodeIfPresent(String.self, forKey: .thirdLine)
-        isSou = try container.decodeIfPresent(Bool.self, forKey: .isSou)
+        isSou = container.decodeBoolLikeIfPresent(forKey: .isSou)
     }
     
     /// Парсинг даты из datetime_start
@@ -180,6 +180,8 @@ final class CalendarViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var selectedDate: Date = Date()
     @Published var currentMonth: Date = Date()
+    @Published private(set) var caseDisplayNames: [Int: String] = [:]
+    @Published private(set) var caseDisplayNamesByNumber: [String: String] = [:]
     
     private let apiService = APIService.shared
     private let cacheManager = CacheManager.shared
@@ -206,6 +208,8 @@ final class CalendarViewModel: ObservableObject {
     /// Очистить все данные (при смене пользователя)
     func clearData() {
         events = []
+        caseDisplayNames = [:]
+        caseDisplayNamesByNumber = [:]
         errorMessage = nil
         isLoading = false
         print("🗑️ [CalendarViewModel] Data cleared on user change")
@@ -254,6 +258,7 @@ final class CalendarViewModel: ObservableObject {
             
             // Кэшируем результат
             await cacheManager.saveCalendarEventsAsync(events)
+            await refreshCaseDisplayNames()
             
             isLoading = false
             errorMessage = nil
@@ -292,10 +297,24 @@ final class CalendarViewModel: ObservableObject {
     private func loadFromCache() async -> Bool {
         if let cachedEvents = await cacheManager.loadCachedCalendarEventsAsync() {
             events = cachedEvents
+            await refreshCaseDisplayNames()
             print("📦 Loaded \(cachedEvents.count) calendar events from cache")
             return true
         }
         return false
+    }
+
+    /// Возвращает отображаемый заголовок события:
+    /// пользовательское имя дела (если есть) или исходный заголовок из календаря.
+    func displayTitle(for event: CalendarEvent) -> String {
+        if let id = event.caseId, let custom = caseDisplayNames[id], !custom.isEmpty {
+            return custom
+        }
+        let normalizedNumber = Self.normalizeCaseNumber(event.caseNumber ?? event.title)
+        if let custom = caseDisplayNamesByNumber[normalizedNumber], !custom.isEmpty {
+            return custom
+        }
+        return event.title
     }
     
     /// События для выбранной даты
@@ -403,6 +422,55 @@ final class CalendarViewModel: ObservableObject {
         }
 
         eventsByDay = grouped
+    }
+
+    private func refreshCaseDisplayNames() async {
+        var resultById: [Int: String] = [:]
+        var resultByNumber: [String: String] = [:]
+
+        // 1) Быстрый источник — локальный кэш подписок.
+        if let cachedCases = await cacheManager.loadCachedCasesAsync() {
+            for legalCase in cachedCases {
+                let preferred = (legalCase.name ?? legalCase.title ?? legalCase.value ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let number = (legalCase.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !preferred.isEmpty, preferred != number {
+                    resultById[legalCase.id] = preferred
+                    resultByNumber[Self.normalizeCaseNumber(number)] = preferred
+                }
+            }
+        }
+
+        // 2) Актуализация с сервера (если онлайн), чтобы сразу видеть последние переименования.
+        if networkMonitor.isConnected {
+            do {
+                let response: SubscriptionsResponse = try await apiService.request(
+                    endpoint: APIEndpoint.getSubscriptions.path,
+                    method: .get
+                )
+                for legalCase in response.cases {
+                    let preferred = (legalCase.name ?? legalCase.title ?? legalCase.value ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let number = (legalCase.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !preferred.isEmpty, preferred != number {
+                        resultById[legalCase.id] = preferred
+                        resultByNumber[Self.normalizeCaseNumber(number)] = preferred
+                    }
+                }
+            } catch {
+                // Не блокируем календарь из-за ошибки синхронизации имен.
+            }
+        }
+
+        caseDisplayNames = resultById
+        caseDisplayNamesByNumber = resultByNumber
+    }
+
+    private static func normalizeCaseNumber(_ input: String) -> String {
+        input
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .uppercased()
     }
 
     private static let monthTitleFormatter: DateFormatter = {

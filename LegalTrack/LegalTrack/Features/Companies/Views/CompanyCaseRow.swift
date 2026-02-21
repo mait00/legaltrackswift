@@ -10,6 +10,7 @@ import SwiftUI
 struct CompanyCaseRow: View {
     let companyCase: CompanyCase
     let isInMonitoring: Bool
+    let monitoringCaseId: Int?
     @Binding var selectedCaseId: Int?
     @State private var isAdding = false
     @State private var showError: String?
@@ -34,13 +35,19 @@ struct CompanyCaseRow: View {
     private var effectiveInMonitoring: Bool {
         isInMonitoring || addedSuccessfully
     }
+
+    private var canOpenCase: Bool {
+        monitoringCaseId != nil
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if effectiveInMonitoring {
+                if effectiveInMonitoring && canOpenCase {
                     Button {
-                        selectedCaseId = companyCase.id
+                        if let monitoringCaseId {
+                            selectedCaseId = monitoringCaseId
+                        }
                     } label: {
                         Text(companyCase.caseNumber)
                             .font(.subheadline.weight(.semibold))
@@ -141,6 +148,7 @@ struct CompanyCaseRow: View {
             
             if response.success == true || response.status == "success" {
                 addedSuccessfully = true
+                NotificationCenter.default.post(name: .monitoringCasesDidChange, object: nil)
             } else {
                 showError = response.message ?? "Не удалось добавить дело"
             }
@@ -171,6 +179,7 @@ struct CompanyCaseRow: View {
                     meta: "дело синхронизировано"
                 ),
                 isInMonitoring: false,
+                monitoringCaseId: nil,
                 selectedCaseId: .constant(nil)
             )
         }

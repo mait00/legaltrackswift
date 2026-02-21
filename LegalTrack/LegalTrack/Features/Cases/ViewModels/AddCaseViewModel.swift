@@ -58,6 +58,7 @@ final class AddCaseViewModel: ObservableObject {
                 let baseMessage = response.message ?? "Дело успешно добавлено"
                 successMessage = baseMessage + "\nИдёт поиск и добавление данных по делу. Это может занять несколько минут."
                 print("✅ [AddCase] Case added successfully")
+                NotificationCenter.default.post(name: .monitoringCasesDidChange, object: nil)
                 
                 // Очищаем кеш подписок для обновления списка дел
                 CacheManager.shared.removeCache(forKey: "subscriptions")
@@ -143,4 +144,3 @@ struct AddCaseResponse: Codable {
         let value: String?
     }
 }
-

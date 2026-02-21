@@ -181,7 +181,7 @@ final class PushNotificationService: NSObject, ObservableObject {
             companyId = data["company_id"] as? Int
             keywordId = data["keyword_id"] as? Int
             if let isSouValue = data["is_sou"] {
-                isSou = (isSouValue as? Bool) ?? ((isSouValue as? Int) == 1) ?? ((isSouValue as? String) == "true")
+                isSou = Self.parseBoolLike(isSouValue)
             }
         }
         
@@ -263,5 +263,19 @@ final class PushNotificationService: NSObject, ObservableObject {
         isSubscribed = false
         pushToken = nil
         print("📴 [Push] Unsubscribed from notifications")
+    }
+}
+
+private extension PushNotificationService {
+    nonisolated static func parseBoolLike(_ value: Any) -> Bool? {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let i = value as? Int { return i != 0 }
+        if let s = value as? String {
+            let v = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes", "y"].contains(v) { return true }
+            if ["0", "false", "no", "n"].contains(v) { return false }
+        }
+        return nil
     }
 }

@@ -25,12 +25,22 @@ struct LegalTrackApp: App {
 final class AppState: ObservableObject {
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var currentUser: User?
+    @Published private(set) var userProfile: UserProfile?
+    /// Tariff status from `/api/user-tarif` (more reliable than profile flag on some backends).
+    @Published private(set) var tariffActive: Bool?
     
     private let keychainManager = KeychainManager.shared
     private let userDefaultsManager = UserDefaultsManager.shared
     private let apiService = APIService.shared
     
     init() {
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("UserProfileShouldRefresh"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { await self?.loadUserProfile() }
+        }
         checkAuthentication()
     }
     
@@ -46,7 +56,48 @@ final class AppState: ObservableObject {
     }
     
     private func loadUserProfile() async {
-        // TODO: Загрузить профиль пользователя через API
+        do {
+            let response: UserProfileResponse = try await apiService.request(
+                endpoint: APIEndpoint.getProfile.path,
+                method: .get
+            )
+            userProfile = response.data
+
+            // Keep `currentUser` best-effort in sync for existing UI uses.
+            if let p = response.data,
+               let id = p.id,
+               let first = p.firstName,
+               let last = p.lastName,
+               let email = p.email,
+               let phone = p.phone {
+                currentUser = User(id: id, firstName: first, lastName: last, email: email, phone: phone, type: p.type)
+            }
+
+            // Best-effort: also fetch tariff status.
+            await loadTariffStatus()
+            print("👤 [AppState] Profile loaded. profileTarifActive=\(userProfile?.isTarifActive ?? false), userTarifActive=\(tariffActive ?? false)")
+        } catch {
+            print("❌ [AppState] Failed to load profile: \(error)")
+        }
+    }
+
+    private func loadTariffStatus() async {
+        do {
+            let response: TariffsResponse = try await apiService.request(
+                endpoint: APIEndpoint.getUserTarif.path,
+                method: .get
+            )
+            tariffActive = response.data?.active
+        } catch {
+            // Keep previous value; don't fail profile load because of tariff endpoint.
+            tariffActive = tariffActive
+        }
+    }
+
+    /// Single source of truth for feature gating in UI.
+    var isTariffActiveEffective: Bool {
+        if let t = tariffActive { return t }
+        return userProfile?.isTarifActive ?? false
     }
     
     func authenticate(with token: String) {
@@ -74,6 +125,7 @@ final class AppState: ObservableObject {
     func logout() {
         isAuthenticated = false
         currentUser = nil
+        userProfile = nil
         apiService.setToken(nil)
         
         // Очищаем кеш при выходе пользователя
@@ -90,6 +142,11 @@ final class AppState: ObservableObject {
             keychainManager.clearAll()
             userDefaultsManager.clearAll()
         }
+    }
+
+    /// Public refresh hook for UI (tariffs/profile screens).
+    func refreshUserProfile() {
+        Task { await loadUserProfile() }
     }
 }
 

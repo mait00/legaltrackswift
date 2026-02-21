@@ -73,14 +73,16 @@ extension View {
     /// Карточка в стиле Liquid Glass
     func liquidGlassCard(
         padding: CGFloat = 16,
-        material: Material = .ultraThinMaterial
+        material: Material = .ultraThinMaterial,
+        cornerRadius: CGFloat = 16,
+        shadowRadius: CGFloat = 8
     ) -> some View {
         self
             .padding(padding)
             .background(material)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(
                         LinearGradient(
                             colors: [Color.white.opacity(0.2), Color.white.opacity(0.05)],
@@ -90,7 +92,7 @@ extension View {
                         lineWidth: 0.5
                     )
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 8, y: 4)
+            .shadow(color: Color.black.opacity(0.08), radius: shadowRadius, y: 4)
     }
 }
 
@@ -219,6 +221,41 @@ extension View {
     }
 }
 
+// MARK: - Unified Screen Styles
+
+extension View {
+    /// Unified list backdrop and behavior across tabs/screens.
+    func appListScreenStyle() -> some View {
+        self
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(AppColors.groupedBackground.ignoresSafeArea())
+    }
+
+    /// Unified card surface to avoid mixed materials/radius.
+    /// Uses a solid system background for better readability in lists.
+    func appCardSurface(cornerRadius: CGFloat = 16, material: Material = .thinMaterial) -> some View {
+        self
+            .background(
+                AppColors.surface,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(AppColors.border.opacity(0.22), lineWidth: 0.6)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+    }
+
+    /// Unified list row spacing for card-like layout.
+    func appListCardRow(top: CGFloat = 6, bottom: CGFloat = 6, horizontal: CGFloat = 16) -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: top, leading: horizontal, bottom: bottom, trailing: horizontal))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+}
+
 // MARK: - Animated Background (Orbs)
 struct LiquidGlassAnimatedBackground: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -265,4 +302,3 @@ struct LiquidGlassAnimatedBackground: View {
         .ignoresSafeArea()
     }
 }
-

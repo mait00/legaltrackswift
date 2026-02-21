@@ -10,10 +10,16 @@ import SwiftUI
 /// Экран компаний
 struct CompaniesView: View {
     @StateObject private var viewModel = CompaniesViewModel()
+    @State private var path = NavigationPath()
     @State private var showAddCompany = false
+    @EnvironmentObject private var appState: AppState
+    @State private var showTariffAlert = false
+    @State private var showTariffs = false
+    @State private var pendingDeleteCompany: Company?
+    @State private var showDeleteAlert = false
     
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 if viewModel.isLoading {
                     Section {
@@ -35,8 +41,21 @@ struct CompaniesView: View {
                 } else {
                     Section {
                         ForEach(viewModel.companies) { company in
-                            NavigationLink(value: company.id) {
+                            Button {
+                                path.append(company.id)
+                            } label: {
                                 CompanyRow(company: company)
+                            }
+                            .buttonStyle(.plain)
+                            .appListCardRow()
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    pendingDeleteCompany = company
+                                    showDeleteAlert = true
+                                } label: {
+                                    Label("Удалить", systemImage: "trash")
+                                }
+                                .tint(.red)
                             }
                         }
                     } header: {
@@ -44,7 +63,7 @@ struct CompaniesView: View {
                     }
                 }
                 }
-            .listStyle(.insetGrouped)
+            .appListScreenStyle()
             .navigationTitle("Компании")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
@@ -53,7 +72,12 @@ struct CompaniesView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showAddCompany = true
+                        let isTarifActive = appState.isTariffActiveEffective
+                        if !isTarifActive {
+                            showTariffAlert = true
+                        } else {
+                            showAddCompany = true
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 17, weight: .semibold))
@@ -71,7 +95,34 @@ struct CompaniesView: View {
                     }
             }
             .navigationDestination(for: Int.self) { companyId in
-                CompanyDetailView(companyId: companyId)
+                CompanyDetailView(companyId: companyId) {
+                    Task {
+                        await viewModel.loadCompanies()
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $showTariffs) {
+                TariffsView()
+            }
+            .alert("Требуется тариф", isPresented: $showTariffAlert) {
+                Button("Тарифы") { showTariffs = true }
+                Button("Отмена", role: .cancel) { }
+            } message: {
+                Text("Добавление компаний доступно только на платном тарифе.")
+            }
+            .alert("Удалить компанию?", isPresented: $showDeleteAlert) {
+                Button("Удалить", role: .destructive) {
+                    guard let company = pendingDeleteCompany else { return }
+                    Task {
+                        _ = await viewModel.deleteCompany(company)
+                        pendingDeleteCompany = nil
+                    }
+                }
+                Button("Отмена", role: .cancel) {
+                    pendingDeleteCompany = nil
+                }
+            } message: {
+                Text("Компания будет удалена из мониторинга.")
             }
         }
         .task {
@@ -93,21 +144,21 @@ struct CompanyRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
 
                 HStack(spacing: 10) {
                     if let inn = company.inn, !inn.isEmpty {
                         Text("ИНН \(inn)")
-                            .font(.caption)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
 
                     if let totalCases = company.totalCases, !totalCases.isEmpty {
                         Text("Дел: \(totalCases)")
-                            .font(.caption)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -115,18 +166,19 @@ struct CompanyRow: View {
             }
 
             Spacer(minLength: 0)
-
-            if let new = company.new, new > 0 {
-                Text("+\(new)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.red, in: Capsule())
-                    .accessibilityLabel("Новых: \(new)")
-            }
+            
+            Circle()
+                .fill(AppColors.secondaryBackground.opacity(0.9))
+                .frame(width: 24, height: 24)
+                .overlay {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .appCardSurface(cornerRadius: 14)
     }
 
     private var displayName: String {
@@ -138,4 +190,5 @@ struct CompanyRow: View {
 
 #Preview {
     CompaniesView()
+        .environmentObject(AppState())
 }

@@ -24,7 +24,9 @@ final class DaDataService {
             return []
         }
         
-        let url = URL(string: "\(baseURL)/suggest/party")!
+        guard let url = URL(string: "\(baseURL)/suggest/party") else {
+            throw APIError.invalidURL
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -183,4 +185,3 @@ struct DaDataManagement: Codable {
     let post: String?
     let disqualified: Bool?
 }
-

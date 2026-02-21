@@ -18,8 +18,9 @@ struct MainTabView: View {
         case companies = 2
         case calendar = 3
         case delays = 4
-        case search = 5
-        case profile = 6
+        case objects = 5
+        case fines = 6
+        case profile = 7
     }
     
     var body: some View {
@@ -58,11 +59,17 @@ struct MainTabView: View {
                     }
                     .tag(Tab.delays.rawValue)
                 
-                CasesSearchView()
+                MonitoringObjectsTabView()
                     .tabItem {
-                        Label("Поиск", systemImage: "magnifyingglass")
+                        Label("Объекты", systemImage: "shippingbox")
                     }
-                    .tag(Tab.search.rawValue)
+                    .tag(Tab.objects.rawValue)
+
+                FinesTabView()
+                    .tabItem {
+                        Label("Штрафы", systemImage: "car")
+                    }
+                    .tag(Tab.fines.rawValue)
                 
                 ProfileView()
                     .tabItem {
@@ -71,9 +78,6 @@ struct MainTabView: View {
                     .tag(Tab.profile.rawValue)
             }
             .tint(AppColors.primary)
-        }
-        .sheet(isPresented: $showAddCase) {
-            AddCaseView()
         }
         .onAppear {
             // HIG: используем системный внешний вид TabBar

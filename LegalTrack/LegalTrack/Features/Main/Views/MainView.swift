@@ -11,9 +11,14 @@ import SwiftUI
 struct CasesView: View {
     @StateObject private var viewModel = MonitoringViewModel()
     @Binding var showAddCase: Bool
+    @EnvironmentObject private var appState: AppState
     
     @State private var pendingDeleteCase: LegalCase?
     @State private var showDeleteAlert = false
+    @State private var showTariffLimitAlert = false
+    @State private var showTariffs = false
+    @State private var selectedCase: LegalCase?
+    @State private var showSearchBar = false
     
     init(showAddCase: Binding<Bool> = .constant(false)) {
         _showAddCase = showAddCase
@@ -54,17 +59,57 @@ struct CasesView: View {
                             )
                         }
                     }
-                    
-                    // Фильтр по типу суда
-                    Section {
-                        Picker("Тип суда", selection: $viewModel.selectedFilter) {
-                            ForEach(CaseFilter.allCases, id: \.self) { filter in
-                                Text(filter.rawValue).tag(filter)
+
+                    // Deep cache prefetch indicator (case details)
+                    if viewModel.isPrefetchingCaseDetails, viewModel.prefetchTotalCount > 0 {
+                        Section {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.9)
+                                    Text("Кэширование дел: \(viewModel.prefetchDoneCount)/\(viewModel.prefetchTotalCount)")
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                }
+
+                                ProgressView(
+                                    value: Double(viewModel.prefetchDoneCount),
+                                    total: Double(viewModel.prefetchTotalCount)
+                                )
                             }
+                            .padding(.vertical, 6)
+                            .listRowBackground(Color.clear)
                         }
-                        .liquidGlassSegmentedStyle()
+                    }
+                    
+                    if showSearchBar {
+                        Section {
+                            HStack(spacing: 10) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(.secondary)
+
+                                TextField("Поиск по делам", text: $viewModel.searchText)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .font(.subheadline)
+
+                                if !viewModel.searchText.isEmpty {
+                                    Button {
+                                        viewModel.searchText = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 8)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 6, trailing: 0))
                     }
                 
                 // Список дел
@@ -88,9 +133,13 @@ struct CasesView: View {
                 } else {
                     Section {
                         ForEach(viewModel.filteredCases) { legalCase in
-                            NavigationLink(destination: CaseDetailView(legalCase: legalCase)) {
+                            Button {
+                                selectedCase = legalCase
+                            } label: {
                                 CaseRow(legalCase: legalCase)
                             }
+                            .buttonStyle(.plain)
+                            .appListCardRow(horizontal: 12)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     pendingDeleteCase = legalCase
@@ -100,32 +149,101 @@ struct CasesView: View {
                                 }
                             }
                         }
-                    } header: {
+                    }
+                    .listRowBackground(Color.clear)
+
+                    Section {
                         HStack {
-                            Text("\(viewModel.filteredCases.count) \(casesWord(viewModel.filteredCases.count))")
+                            Spacer()
+                            Text("Всего: \(viewModel.filteredCases.count) \(casesWord(viewModel.filteredCases.count))")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.secondary)
                             Spacer()
                         }
                     }
-                    .listRowBackground(Color.clear)
+                    .appListCardRow(top: 8, bottom: 8)
                 }
                 }
-            .listStyle(.insetGrouped)
+            .appListScreenStyle()
             .navigationTitle("Дела")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $viewModel.searchText, prompt: "Поиск по делам")
             .refreshable {
                 await viewModel.loadCases()
             }
+            .navigationDestination(item: $selectedCase) { legalCase in
+                CaseDetailView(legalCase: legalCase)
+            }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            viewModel.selectedFilter = .all
+                        } label: {
+                            HStack {
+                                Text("Все")
+                                Spacer()
+                                if viewModel.selectedFilter == .all {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        Button {
+                            viewModel.selectedFilter = .arbitration
+                        } label: {
+                            HStack {
+                                Text("АС")
+                                Spacer()
+                                if viewModel.selectedFilter == .arbitration {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        Button {
+                            viewModel.selectedFilter = .general
+                        } label: {
+                            HStack {
+                                Text("СОЮ")
+                                Spacer()
+                                if viewModel.selectedFilter == .general {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: viewModel.selectedFilter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.primary)
+                    }
+
                     Button {
-                        showAddCase = true
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showSearchBar.toggle()
+                            if !showSearchBar {
+                                viewModel.searchText = ""
+                            }
+                        }
+                    } label: {
+                        Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.primary)
+                    }
+
+                    Button {
+                        let isTarifActive = appState.isTariffActiveEffective
+                        if !isTarifActive, viewModel.cases.count > 5 {
+                            showTariffLimitAlert = true
+                        } else {
+                            showAddCase = true
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.primary)
                     }
                 }
+            }
+            .navigationDestination(isPresented: $showTariffs) {
+                TariffsView()
             }
             .alert("Удалить дело?", isPresented: $showDeleteAlert) {
                 Button("Удалить", role: .destructive) {
@@ -142,9 +260,21 @@ struct CasesView: View {
             } message: {
                 Text("Это удалит дело из мониторинга.")
             }
+            .alert("Лимит бесплатного тарифа", isPresented: $showTariffLimitAlert) {
+                Button("Тарифы") { showTariffs = true }
+                Button("Отмена", role: .cancel) { }
+            } message: {
+                Text("В бесплатном тарифе можно отслеживать до 5 дел. Чтобы добавить больше, перейдите на платный тариф.")
+            }
         }
         .task {
             await viewModel.loadCases()
+        }
+        .sheet(isPresented: $showAddCase) {
+            AddCaseView(existingCasesCount: viewModel.cases.count)
+                .onDisappear {
+                    Task { await viewModel.loadCases() }
+                }
         }
     }
     
@@ -179,11 +309,7 @@ struct CaseRow: View {
         legalCase.isSou == true
     }
 
-    private var backgroundColor: Color {
-        isSou
-            ? Color.orange.opacity(0.08) // Мягкий оранжевый для СОЮ
-            : Color.blue.opacity(0.08)   // Мягкий синий для АС
-    }
+    private var accentColor: Color { isSou ? Color.orange : Color.blue }
 
     private var newCount: Int {
         legalCase.new ?? 0
@@ -197,83 +323,132 @@ struct CaseRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Номер дела и бейджи
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(legalCase.value ?? legalCase.name ?? "Дело")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            headerLine
 
-                Spacer(minLength: 8)
-
-                HStack(spacing: 6) {
-                    // Тип суда
-                    Text(isSou ? "СОЮ" : "АС")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(isSou ? Color.orange : Color.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            (isSou ? Color.orange : Color.blue).opacity(0.15),
-                            in: Capsule()
-                        )
-
-                    // Новые документы
-                    if newCount > 0 {
-                        Text("Новые \(newCount)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.red.opacity(0.12), in: Capsule())
-                    }
-                }
-            }
-
-            // Состояние загрузки/синхронизации для только что добавленных дел
-            // ВАЖНО: для дел со статусом "monitoring" ничего не показываем (статус не выводится в карточку)
-            if (legalCase.status?.lowercased() == "loading") || ((legalCase.status == nil) && legalCase.lastEvent == nil && (legalCase.totalEvets == nil || legalCase.totalEvets == "...")) {
+            if isLoadingCase {
                 HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Идёт поиск и добавление данных по делу…")
+                    ProgressView().scaleEffect(0.85)
+                    Text("Добавляем данные по делу…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 
-            // Участники
-            participantsView
+            participantsCompact
 
-            // Метаданные: суд, событие, кол-во документов, город
             VStack(alignment: .leading, spacing: 6) {
                 metadataLine(items: firstMetadataLineItems)
                 metadataLine(items: secondMetadataLineItems)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(backgroundColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            (isSou ? Color.orange : Color.blue).opacity(0.2),
-                            lineWidth: 1
-                        )
-                )
-        )
+        .padding(12)
+        .appCardSurface(cornerRadius: 16)
+        .liquidGlassLeftAccent(color: accentColor.opacity(0.9), width: 4, cornerRadius: 16)
+    }
+
+    private var isLoadingCase: Bool {
+        (legalCase.status?.lowercased() == "loading") ||
+        ((legalCase.status == nil) && legalCase.lastEvent == nil && (legalCase.totalEvets == nil || legalCase.totalEvets == "..."))
+    }
+
+    private var primaryTitle: String {
+        let number = legalCase.value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = legalCase.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        if let number, !number.isEmpty { return number }
+        return legalCase.displayTitle
+    }
+
+    private var lastCourtTitle: String? {
+        let court = legalCase.courtName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let court, !court.isEmpty else { return nil }
+        return court
+    }
+
+    private var subtitleText: String? {
+        let number = legalCase.value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = legalCase.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let court = lastCourtTitle
+
+        var parts: [String] = []
+        if let name, !name.isEmpty,
+           let number, !number.isEmpty,
+           name != number {
+            parts.append("№ \(number)")
+        }
+        if let court {
+            parts.append(court)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
+    }
+
+    private var headerLine: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(primaryTitle)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let subtitle = subtitleText {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(isSou ? "СОЮ" : "АС")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(accentColor.opacity(0.14), in: Capsule())
+
+                        if newCount > 0 {
+                            Text("\(newCount)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.red, in: Capsule())
+                                .accessibilityLabel("Новых документов: \(newCount)")
+                        }
+                    }
+
+                    if let total = totalDocsText, !total.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text(total)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 6)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var firstMetadataLineItems: [(String, String)] {
         var items: [(String, String)] = []
-
-        if let courtName = legalCase.courtName, !courtName.isEmpty {
-            items.append(("building.columns.fill", courtName))
-        }
 
         if let lastEvent = legalCase.lastEvent, !lastEvent.isEmpty {
             items.append(("doc.text", lastEvent))
@@ -283,17 +458,9 @@ struct CaseRow: View {
     }
 
     private var secondMetadataLineItems: [(String, String)] {
-        var items: [(String, String)] = []
-
-        if let total = totalDocsText {
-            items.append(("folder", "Документов: \(total)"))
-        }
-
-        if let city = legalCase.city, !city.isEmpty {
-            items.append(("mappin.and.ellipse", city))
-        }
-
-        return items
+        // City removed; we intentionally keep the second line free for better visual density.
+        // If needed later, we can place "last court" here for short court names.
+        return []
     }
 
     @ViewBuilder
@@ -309,7 +476,7 @@ struct CaseRow: View {
 
                     Label(item.1, systemImage: item.0)
                         .font(.caption)
-                        .foregroundStyle(index == 0 ? .secondary : .tertiary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -317,30 +484,17 @@ struct CaseRow: View {
     }
 
     @ViewBuilder
-    private var participantsView: some View {
+    private var participantsCompact: some View {
         // Для СОЮ дел - показываем все стороны без разделения
         if isSou {
             let allSides = parseAllSides()
             
             if !allSides.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.orange)
-                        .frame(width: 16)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Стороны")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        
-                        Text(allSides.joined(separator: ", "))
-                            .font(.caption)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                Text("Стороны: \(allSides.joined(separator: ", "))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } else {
             // Для АС дел - показываем истцов и ответчиков раздельно
@@ -348,49 +502,18 @@ struct CaseRow: View {
             let defendants = parseDefendants()
 
             if !plaintiffs.isEmpty || !defendants.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    // Истцы
+                VStack(alignment: .leading, spacing: 4) {
                     if !plaintiffs.isEmpty {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.orange)
-                                .frame(width: 16)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Истцы")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                
-                                Text(plaintiffs.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
+                        Text("И: \(plaintiffs.joined(separator: ", "))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-
-                    // Ответчики
                     if !defendants.isEmpty {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color.blue)
-                                .frame(width: 16)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Ответчики")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                
-                                Text(defendants.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
+                        Text("О: \(defendants.joined(separator: ", "))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -443,7 +566,15 @@ struct CaseRow: View {
         }
         
         // Убираем дубликаты
-        return Array(Set(allSides))
+        // Стабильная дедупликация (без рандомного порядка как у Set)
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for s in allSides {
+            if seen.insert(s).inserted {
+                ordered.append(s)
+            }
+        }
+        return ordered
     }
 
     private func parsePlaintiffs() -> [String] {

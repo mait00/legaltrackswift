@@ -10,10 +10,13 @@ import SwiftUI
 /// Детальная страница компании
 struct CompanyDetailView: View {
     let companyId: Int
+    var onDeleted: (() -> Void)? = nil
     @StateObject private var viewModel = CompanyDetailViewModel()
     @Environment(\.dismiss) private var dismiss
     @StateObject private var monitoringViewModel = MonitoringViewModel() // Для проверки наличия дел в мониторинге
     @State private var selectedCaseId: Int?
+    @State private var showDeleteAlert = false
+    @State private var showDeleteErrorAlert = false
     
     var body: some View {
         Group {
@@ -38,6 +41,12 @@ struct CompanyDetailView: View {
                         } label: {
                             Label("Поделиться", systemImage: "square.and.arrow.up")
                         }
+
+                        Button(role: .destructive) {
+                            showDeleteAlert = true
+                        } label: {
+                            Label("Удалить", systemImage: "trash")
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .foregroundStyle(.primary)
@@ -45,9 +54,37 @@ struct CompanyDetailView: View {
                 }
             }
         }
+        .alert("Удалить компанию?", isPresented: $showDeleteAlert) {
+            Button("Удалить", role: .destructive) {
+                Task {
+                    let deleted = await viewModel.deleteCompany(companyId: companyId)
+                    if deleted {
+                        onDeleted?()
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                dismiss()
+                            }
+                        }
+                    } else {
+                        showDeleteErrorAlert = true
+                    }
+                }
+            }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Компания будет удалена из мониторинга.")
+        }
+        .alert("Ошибка", isPresented: $showDeleteErrorAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(viewModel.errorMessage ?? "Не удалось удалить компанию")
+        }
         .task {
             await viewModel.loadCompanyDetail(companyId: companyId)
             await monitoringViewModel.loadCases() // Загружаем список дел для проверки
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .monitoringCasesDidChange)) { _ in
+            Task { await monitoringViewModel.loadCases() }
         }
         .navigationDestination(item: $selectedCaseId) { caseId in
             CaseDetailView(caseId: caseId)
@@ -134,9 +171,11 @@ struct CompanyDetailView: View {
                     .padding(.vertical, 16)
                 } else {
                     ForEach(viewModel.cases) { companyCase in
+                        let matchedCase = matchedMonitoringCase(for: companyCase)
                         CompanyCaseRow(
                             companyCase: companyCase,
-                            isInMonitoring: monitoringViewModel.cases.contains { $0.id == companyCase.id },
+                            isInMonitoring: matchedCase != nil,
+                            monitoringCaseId: matchedCase?.id,
                             selectedCaseId: $selectedCaseId
                         )
                     }
@@ -155,6 +194,41 @@ struct CompanyDetailView: View {
         let custom = (company.nameCustom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !custom.isEmpty { return custom }
         return company.name
+    }
+
+    private func matchedMonitoringCase(for companyCase: CompanyCase) -> LegalCase? {
+        if let byId = monitoringViewModel.cases.first(where: { $0.id == companyCase.id }) {
+            return byId
+        }
+
+        let target = normalizeCaseNumber(companyCase.caseNumber)
+        guard !target.isEmpty else { return nil }
+
+        return monitoringViewModel.cases.first { legalCase in
+            let candidates = [legalCase.value, legalCase.name, legalCase.title]
+            return candidates.contains { normalizeCaseNumber($0) == target }
+        }
+    }
+
+    private func normalizeCaseNumber(_ input: String?) -> String {
+        guard let input else { return "" }
+
+        // Убираем пробелы/дефисы-типографику, приводим к uppercase,
+        // и унифицируем кириллицу/латиницу для похожих символов в номерах дел.
+        let prepared = input
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .uppercased()
+
+        let map: [Character: Character] = [
+            "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M",
+            "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T",
+            "У": "Y", "Х": "X"
+        ]
+
+        return String(prepared.map { map[$0] ?? $0 })
     }
     
     // MARK: - Share

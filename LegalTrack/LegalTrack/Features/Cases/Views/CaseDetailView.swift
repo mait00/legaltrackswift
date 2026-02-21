@@ -43,6 +43,17 @@ struct CaseDetailView: View {
         }
         return legalCase?.value ?? "Дело"
     }
+
+    private var isSouCase: Bool {
+        if let detail = viewModel.caseDetail {
+            return detail.isSou
+        }
+        return legalCase?.isSou ?? false
+    }
+
+    private var externalLinkButtonTitle: String {
+        isSouCase ? "Перейти на сайт суда" : "Открыть на kad.arbitr.ru"
+    }
     
     var body: some View {
         Group {
@@ -71,7 +82,7 @@ struct CaseDetailView: View {
                         Button {
                             openURL(link)
                         } label: {
-                            Label("Открыть на kad.arbitr", systemImage: "safari")
+                            Label(externalLinkButtonTitle, systemImage: "safari")
                         }
                     }
                     
@@ -161,6 +172,7 @@ struct CaseDetailView: View {
         .sheet(item: $selectedDocumentDetails) { ctx in
             DocumentDetailSheet(
                 context: ctx,
+                openCaseLinkTitle: externalLinkButtonTitle,
                 onOpenCaseLink: {
                     if let link = viewModel.caseDetail?.cardLink ?? viewModel.caseDetail?.link ?? legalCase?.cardLink ?? legalCase?.link {
                         openURL(link)
@@ -444,13 +456,15 @@ struct CaseDetailView: View {
                     .padding(.vertical, 6)
                     .background(
                         LinearGradient(
-                            colors: [AppColors.primary, AppColors.primary.opacity(0.8)],
+                            colors: detail.isSou
+                                ? [Color.orange, Color.orange.opacity(0.85)]
+                                : [AppColors.primary, AppColors.primary.opacity(0.8)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
                         in: RoundedRectangle(cornerRadius: 8)
                     )
-                    .shadow(color: AppColors.primary.opacity(0.3), radius: 4, x: 0, y: 2)
+                    .shadow(color: (detail.isSou ? Color.orange : AppColors.primary).opacity(0.3), radius: 4, x: 0, y: 2)
             }
             
             // Метаданные
@@ -680,7 +694,7 @@ struct CaseDetailView: View {
                     openURL(link)
                 } label: {
                     HStack(spacing: 12) {
-                        Label("Электронное дело на kad.arbitr.ru", systemImage: "safari")
+                        Label(externalLinkButtonTitle, systemImage: "safari")
                             .font(.subheadline.weight(.medium))
                         Spacer()
                         Image(systemName: "arrow.up.right")
@@ -834,7 +848,7 @@ struct CaseDetailView: View {
                         openURL(link)
                     } label: {
                         HStack {
-                            Label("Электронное дело", systemImage: "safari")
+                            Label(externalLinkButtonTitle, systemImage: "safari")
                             Spacer()
                             Image(systemName: "arrow.up.right")
                                 .font(.footnote)
@@ -929,8 +943,20 @@ struct CaseDetailView: View {
         do {
             let endpoint = "/subs/delete?id=\(caseId)&type=case"
             let resp: DeleteResponse = try await APIService.shared.request(endpoint: endpoint, method: .get)
-            if resp.success == true || resp.status?.lowercased() == "success" {
-                await MainActor.run { dismiss() }
+            let status = resp.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let message = resp.message?.lowercased() ?? ""
+            let isSuccess = resp.success == true
+                || status == "success"
+                || message.contains("успех")
+                || (message.contains("подписк") && message.contains("удален"))
+
+            if isSuccess {
+                NotificationCenter.default.post(name: .monitoringCasesDidChange, object: nil)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        dismiss()
+                    }
+                }
             }
         } catch { print("❌ Delete error: \(error)") }
     }
@@ -992,6 +1018,7 @@ private struct DocumentDetailsContext: Identifiable {
 private struct DocumentDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let context: DocumentDetailsContext
+    let openCaseLinkTitle: String
     let onOpenCaseLink: () -> Void
 
     private var title: String {
@@ -1069,7 +1096,7 @@ private struct DocumentDetailSheet: View {
                         Button {
                             onOpenCaseLink()
                         } label: {
-                            Label("Открыть на kad.arbitr.ru", systemImage: "safari")
+                            Label(openCaseLinkTitle, systemImage: "safari")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.borderedProminent)

@@ -10,10 +10,20 @@ import SwiftUI
 /// Экран добавления нового дела в мониторинг
 struct AddCaseView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = AddCaseViewModel()
     @State private var inputText = ""
     @State private var selectedCourtType: CourtType = .arbitration
     @FocusState private var isInputFocused: Bool
+    @State private var showTariffAlert = false
+    @State private var showTariffs = false
+    @State private var tariffAlertMessage = "Функция недоступна в бесплатном тарифе."
+
+    let existingCasesCount: Int
+
+    init(existingCasesCount: Int = 0) {
+        self.existingCasesCount = existingCasesCount
+    }
     
     enum CourtType: String, CaseIterable {
         case arbitration = "Арбитражные суды"
@@ -229,6 +239,10 @@ struct AddCaseView: View {
                             Button {
                                 isInputFocused = false
                                 Task {
+                                    guard allowAddAction() else {
+                                        showTariffAlert = true
+                                        return
+                                    }
                                     await viewModel.addCase(
                                         input: inputText,
                                         isSou: selectedCourtType.isSou
@@ -271,12 +285,39 @@ struct AddCaseView: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: $showTariffs) {
+                TariffsView()
+            }
+            .alert("Требуется тариф", isPresented: $showTariffAlert) {
+                Button("Тарифы") { showTariffs = true }
+                Button("Отмена", role: .cancel) { }
+            } message: {
+                Text(tariffAlertMessage)
+            }
         }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isInputFocused = true
             }
         }
+    }
+
+    private func allowAddAction() -> Bool {
+        let isTarifActive = appState.isTariffActiveEffective
+        if isTarifActive { return true }
+
+        // Free plan limits (ported from legacy RN app):
+        // - max 5 cases
+        // - SOU (URL) adding is paid-only
+        if existingCasesCount > 5 {
+            tariffAlertMessage = "В бесплатном тарифе можно отслеживать до 5 дел. Чтобы добавить больше, перейдите на платный тариф."
+            return false
+        }
+        if selectedCourtType.isSou {
+            tariffAlertMessage = "Добавление дел по ссылке (СОЮ) доступно только на платном тарифе."
+            return false
+        }
+        return true
     }
     
     private var canAddCase: Bool {
@@ -333,6 +374,5 @@ struct CourtTypeCard: View {
 
 #Preview {
     AddCaseView()
+        .environmentObject(AppState())
 }
-
-

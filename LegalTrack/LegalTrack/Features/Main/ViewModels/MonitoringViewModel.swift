@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 final class MonitoringViewModel: ObservableObject {
@@ -25,11 +26,17 @@ final class MonitoringViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isOffline = false
     @Published var lastSyncTime: Date?
+
+    // Deep cache (case details) prefetch state.
+    @Published private(set) var isPrefetchingCaseDetails = false
+    @Published private(set) var prefetchDoneCount: Int = 0
+    @Published private(set) var prefetchTotalCount: Int = 0
     
     private let apiService = APIService.shared
     private let cacheManager = CacheManager.shared
     private let networkMonitor = NetworkMonitor.shared
     private var cancellables = Set<AnyCancellable>()
+    private var prefetchTask: Task<Void, Never>?
     
     init() {
         // Следим за состоянием сети
@@ -38,6 +45,8 @@ final class MonitoringViewModel: ObservableObject {
             .sink { [weak self] isConnected in
                 self?.isOffline = !isConnected
                 if !isConnected {
+                    self?.prefetchTask?.cancel()
+                    self?.isPrefetchingCaseDetails = false
                     // Если пропало соединение, загружаем из кэша
                     Task { await self?.loadFromCache() }
                 }
@@ -59,10 +68,20 @@ final class MonitoringViewModel: ObservableObject {
                 self?.clearData()
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .monitoringCasesDidChange)
+            .sink { [weak self] _ in
+                Task { await self?.loadCases() }
+            }
+            .store(in: &cancellables)
     }
     
     /// Очистить все данные (при смене пользователя)
     func clearData() {
+        prefetchTask?.cancel()
+        isPrefetchingCaseDetails = false
+        prefetchDoneCount = 0
+        prefetchTotalCount = 0
         cases = []
         companies = []
         filteredCases = []
@@ -108,6 +127,9 @@ final class MonitoringViewModel: ObservableObject {
             await cacheManager.saveCasesAsync(cases)
             await cacheManager.saveCompaniesAsync(companies)
             lastSyncTime = Date()
+
+            // Deep cache: prefetch details for all cases so detail screens are available offline.
+            startPrefetchCaseDetails(for: cases)
             
             print("📋 ✅ Final cases count: \(cases.count)")
             
@@ -131,7 +153,58 @@ final class MonitoringViewModel: ObservableObject {
             }
         }
     }
-    
+
+    private func startPrefetchCaseDetails(for cases: [LegalCase]) {
+        prefetchTask?.cancel()
+
+        // Don't prefetch when offline or when list is empty.
+        guard networkMonitor.isConnected else { return }
+        let api = APIService.shared
+        let cache = CacheManager.shared
+        let caseIds = cases.map { $0.id }
+        guard !caseIds.isEmpty else { return }
+
+        prefetchTask = Task { [weak self] in
+            guard let self else { return }
+
+            let missing = await cacheManager.missingCaseDetailIds(for: caseIds)
+            await MainActor.run {
+                self.prefetchTotalCount = missing.count
+                self.prefetchDoneCount = 0
+                self.isPrefetchingCaseDetails = !missing.isEmpty
+            }
+            guard !missing.isEmpty else { return }
+
+            // Limit concurrency to avoid spamming the backend.
+            let concurrency = 3
+            var iterator = missing.makeIterator()
+            let worker = CaseDetailPrefetchWorker(api: api, cache: cache)
+
+            await withTaskGroup(of: Void.self) { group in
+                func addNext() {
+                    guard !Task.isCancelled else { return }
+                    guard let id = iterator.next() else { return }
+                    group.addTask {
+                        await worker.fetchAndCache(caseId: id)
+                    }
+                }
+
+                for _ in 0..<concurrency { addNext() }
+
+                while await group.next() != nil {
+                    await MainActor.run {
+                        self.prefetchDoneCount += 1
+                    }
+                    addNext()
+                }
+            }
+
+            await MainActor.run {
+                self.isPrefetchingCaseDetails = false
+            }
+        }
+    }
+
     /// Загрузить из кэша
     @discardableResult
     private func loadFromCache() async -> Bool {
@@ -162,11 +235,21 @@ final class MonitoringViewModel: ObservableObject {
         do {
             let endpoint = "/subs/delete?id=\(id)&type=case"
             let response: DeleteResponse = try await apiService.request(endpoint: endpoint, method: .get)
-            if response.success == true || response.status?.lowercased() == "success" {
+            let status = response.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let message = response.message?.lowercased() ?? ""
+            let isSuccess = response.success == true
+                || status == "success"
+                || message.contains("успех")
+                || (message.contains("подписк") && message.contains("удален"))
+
+            if isSuccess {
                 if let idx = cases.firstIndex(where: { $0.id == id }) {
-                    cases.remove(at: idx)
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = cases.remove(at: idx)
+                    }
                     await cacheManager.saveCasesAsync(cases)
                 }
+                NotificationCenter.default.post(name: .monitoringCasesDidChange, object: nil)
             } else {
                 await MainActor.run {
                     self.errorMessage = response.message ?? "Не удалось удалить дело"
@@ -220,5 +303,29 @@ final class MonitoringViewModel: ObservableObject {
         }
 
         filteredCases = result
+    }
+}
+
+private actor CaseDetailPrefetchWorker {
+    private let api: APIService
+    private let cache: CacheManager
+
+    init(api: APIService, cache: CacheManager) {
+        self.api = api
+        self.cache = cache
+    }
+
+    func fetchAndCache(caseId: Int) async {
+        do {
+            let response: CaseDetailResponse = try await api.request(
+                endpoint: APIEndpoint.detailCase(id: caseId).path,
+                method: .get
+            )
+            if let data = response.data {
+                await cache.saveCaseDetailAsync(data, for: caseId)
+            }
+        } catch {
+            // Silent by design.
+        }
     }
 }

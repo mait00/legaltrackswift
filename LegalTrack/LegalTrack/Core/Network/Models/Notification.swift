@@ -60,7 +60,7 @@ struct AppNotification: Codable, Identifiable {
         text = try container.decode(String.self, forKey: .text)
         type = try container.decode(NotificationType.self, forKey: .type)
         meta = try container.decode(String.self, forKey: .meta)
-        hasDocument = try container.decodeIfPresent(Bool.self, forKey: .hasDocument) ?? false
+        hasDocument = container.decodeBoolLikeIfPresent(forKey: .hasDocument) ?? false
         document = try container.decodeIfPresent(String.self, forKey: .document)
         
         // case всегда присутствует в API
@@ -69,8 +69,8 @@ struct AppNotification: Codable, Identifiable {
         // company может быть null для уведомлений типа "case"
         companyId = try container.decodeIfPresent(Int.self, forKey: .companyId)
         
-        isSou = try container.decodeIfPresent(Bool.self, forKey: .isSou) ?? false
-        isRead = try container.decodeIfPresent(Bool.self, forKey: .isRead) ?? false
+        isSou = container.decodeBoolLikeIfPresent(forKey: .isSou) ?? false
+        isRead = container.decodeBoolLikeIfPresent(forKey: .isRead) ?? false
     }
     
     init(

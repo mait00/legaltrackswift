@@ -25,7 +25,7 @@ final class CacheManager {
     
     private init() {
         self.cacheDefaults = UserDefaults(suiteName: Self.cacheSuiteName) ?? .standard
-        let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
         cacheDirectory = cachesURL.appendingPathComponent("LegalTrackCache", isDirectory: true)
         casesDirectory = cacheDirectory.appendingPathComponent("cases", isDirectory: true)
         pdfDirectory = cacheDirectory.appendingPathComponent("pdf", isDirectory: true)
@@ -151,6 +151,17 @@ final class CacheManager {
     func loadCachedCaseDetailAsync(for caseId: Int) async -> CaseDetailData? {
         await performIO { [weak self] in
             self?.loadCachedCaseDetail(for: caseId)
+        }
+    }
+
+    /// IDs of cases that don't have cached detail yet.
+    func missingCaseDetailIds(for caseIds: [Int]) async -> [Int] {
+        await performIO { [weak self] in
+            guard let self else { return caseIds }
+            return caseIds.filter { caseId in
+                let fileURL = self.casesDirectory.appendingPathComponent("case_\(caseId).json")
+                return !self.fileManager.fileExists(atPath: fileURL.path)
+            }
         }
     }
     
@@ -324,6 +335,52 @@ final class CacheManager {
 
     func clearReadNotificationKeys() {
         cacheDefaults.removeObject(forKey: readNotificationKeysKey)
+    }
+
+    // MARK: - Monitoring Objects/Fines Payload Caching (SWR)
+
+    func saveMonitoringObjectsPayload(_ data: Data, fetchedAt: Date = Date()) {
+        savePayload(data, fetchedAt: fetchedAt, fileName: "monitoring_objects_payload.json", cacheKey: "monitoring_objects_payload")
+    }
+
+    func saveMonitoringObjectsPayloadAsync(_ data: Data, fetchedAt: Date = Date()) async {
+        await performIO { [weak self] in
+            self?.saveMonitoringObjectsPayload(data, fetchedAt: fetchedAt)
+        }
+    }
+
+    func loadMonitoringObjectsPayload() -> (data: Data, fetchedAt: Date)? {
+        loadPayload(fileName: "monitoring_objects_payload.json")
+    }
+
+    func loadMonitoringObjectsPayloadAsync() async -> (data: Data, fetchedAt: Date)? {
+        await performIO { [weak self] in
+            self?.loadMonitoringObjectsPayload()
+        }
+    }
+
+    func saveFinesPayload(_ data: Data, fetchedAt: Date = Date()) {
+        savePayload(data, fetchedAt: fetchedAt, fileName: "fines_payload.json", cacheKey: "fines_payload")
+    }
+
+    func saveFinesPayloadAsync(_ data: Data, fetchedAt: Date = Date()) async {
+        await performIO { [weak self] in
+            self?.saveFinesPayload(data, fetchedAt: fetchedAt)
+        }
+    }
+
+    func loadFinesPayload() -> (data: Data, fetchedAt: Date)? {
+        loadPayload(fileName: "fines_payload.json")
+    }
+
+    func loadFinesPayloadAsync() async -> (data: Data, fetchedAt: Date)? {
+        await performIO { [weak self] in
+            self?.loadFinesPayload()
+        }
+    }
+
+    func isPayloadFresh(_ fetchedAt: Date, ttl: TimeInterval) -> Bool {
+        Date().timeIntervalSince(fetchedAt) <= ttl
     }
     
     // MARK: - PDF Caching
@@ -598,6 +655,48 @@ final class CacheManager {
             ioQueue.async {
                 continuation.resume(returning: work())
             }
+        }
+    }
+
+    // MARK: - Private payload helpers
+
+    private struct CachedPayload: Codable {
+        let fetchedAt: Date
+        let data: Data
+    }
+
+    private func savePayload(_ data: Data, fetchedAt: Date, fileName: String, cacheKey: String) {
+        let payload = CachedPayload(fetchedAt: fetchedAt, data: data)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        do {
+            let encoded = try encoder.encode(payload)
+            let fileURL = casesDirectory.appendingPathComponent(fileName)
+            try encoded.write(to: fileURL)
+            saveCacheTimestamp(for: cacheKey)
+            print("💾 [CacheManager] Saved payload \(fileName), size: \(data.count) bytes")
+        } catch {
+            print("❌ [CacheManager] Failed to save payload \(fileName): \(error)")
+        }
+    }
+
+    private func loadPayload(fileName: String) -> (data: Data, fetchedAt: Date)? {
+        let fileURL = casesDirectory.appendingPathComponent(fileName)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        do {
+            let encoded = try Data(contentsOf: fileURL)
+            let payload = try decoder.decode(CachedPayload.self, from: encoded)
+            return (payload.data, payload.fetchedAt)
+        } catch {
+            print("❌ [CacheManager] Failed to load payload \(fileName): \(error)")
+            return nil
         }
     }
 }

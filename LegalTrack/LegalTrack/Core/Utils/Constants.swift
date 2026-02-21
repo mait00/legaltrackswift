@@ -55,3 +55,7 @@ enum AppConstants {
         static let springDamping: Double = 0.8
     }
 }
+
+extension NSNotification.Name {
+    static let monitoringCasesDidChange = NSNotification.Name("MonitoringCasesDidChange")
+}

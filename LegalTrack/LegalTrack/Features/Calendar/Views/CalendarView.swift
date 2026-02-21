@@ -18,53 +18,52 @@ struct CalendarView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                AppColors.groupedBackground
                     .ignoresSafeArea()
                 
-                VStack(spacing: 0) {
-                    // Календарь
+                ScrollView {
                     VStack(spacing: 0) {
-                    // Заголовок месяца с навигацией
-                    CalendarHeaderView(
-                        title: viewModel.monthTitle,
-                        onPrevious: viewModel.previousMonth,
-                        onNext: viewModel.nextMonth,
-                        onToday: viewModel.goToToday
-                    )
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.sm)
-                    
-                    // Дни недели
-                    WeekdaysHeaderView()
-                        .padding(.horizontal, AppSpacing.md)
-                        .padding(.bottom, AppSpacing.xs)
-                    
-                    // Календарная сетка
-                    CalendarGridView(viewModel: viewModel)
-                        .padding(.horizontal, AppSpacing.sm)
-                        .gesture(
-                            DragGesture(minimumDistance: 50)
-                                .onChanged { value in
-                                    dragOffset = value.translation.width
-                                }
-                                .onEnded { value in
-                                    if value.translation.width < -50 {
-                                        viewModel.nextMonth()
-                                    } else if value.translation.width > 50 {
-                                        viewModel.previousMonth()
-                                    }
-                                    dragOffset = 0
-                                }
-                        )
-                    }
-                    .background(Material.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    
-                    Divider()
-                        .padding(.top, AppSpacing.sm)
-                    
-                    // Список событий
-                    ScrollView {
+                        // Календарь
+                        VStack(spacing: 0) {
+                            // Заголовок месяца с навигацией
+                            CalendarHeaderView(
+                                title: viewModel.monthTitle,
+                                onPrevious: viewModel.previousMonth,
+                                onNext: viewModel.nextMonth,
+                                onToday: viewModel.goToToday
+                            )
+                            .padding(.horizontal, AppSpacing.md)
+                            .padding(.vertical, AppSpacing.sm)
+                            
+                            // Дни недели
+                            WeekdaysHeaderView()
+                                .padding(.horizontal, AppSpacing.md)
+                                .padding(.bottom, AppSpacing.xs)
+                            
+                            // Календарная сетка
+                            CalendarGridView(viewModel: viewModel)
+                                .padding(.horizontal, AppSpacing.sm)
+                                .gesture(
+                                    DragGesture(minimumDistance: 50)
+                                        .onChanged { value in
+                                            dragOffset = value.translation.width
+                                        }
+                                        .onEnded { value in
+                                            if value.translation.width < -50 {
+                                                viewModel.nextMonth()
+                                            } else if value.translation.width > 50 {
+                                                viewModel.previousMonth()
+                                            }
+                                            dragOffset = 0
+                                        }
+                                )
+                        }
+                        .appCardSurface(cornerRadius: 20)
+                        
+                        Divider()
+                            .padding(.top, AppSpacing.sm)
+                        
+                        // Список событий
                         LazyVStack(spacing: AppSpacing.md) {
                             if viewModel.isLoading {
                                 loadingView
@@ -80,13 +79,14 @@ struct CalendarView: View {
                         .padding(.vertical, AppSpacing.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .refreshable {
-                        await viewModel.loadEvents()
-                    }
+                    .padding(.bottom, AppSpacing.md)
+                }
+                .refreshable {
+                    await viewModel.loadEvents()
                 }
             }
             .navigationTitle("Календарь")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -195,7 +195,10 @@ struct CalendarView: View {
                 .padding(.bottom, AppSpacing.xs)
             
             ForEach(viewModel.eventsForSelectedDate) { event in
-                CalendarEventCardView(event: event)
+                CalendarEventCardView(
+                    event: event,
+                    displayTitle: viewModel.displayTitle(for: event)
+                )
             }
         }
     }
@@ -389,6 +392,7 @@ struct CalendarDayCell: View {
 
 struct CalendarEventCardView: View {
     let event: CalendarEvent
+    let displayTitle: String
 
     var body: some View {
         NavigationLink(destination: destinationView) {
@@ -404,7 +408,7 @@ struct CalendarEventCardView: View {
                         // Заголовок и время
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(event.title)
+                                Text(displayTitle)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
                                     .lineLimit(2)
@@ -425,7 +429,7 @@ struct CalendarEventCardView: View {
                         }
 
                         // Краткое описание заседания
-                        if let summary = event.description, !summary.isEmpty {
+                        if let summary = normalizedSummary {
                             Text(summary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -488,8 +492,7 @@ struct CalendarEventCardView: View {
                 .padding(AppSpacing.md)
             }
             .padding(0)
-            .background(Material.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .appCardSurface(cornerRadius: 18)
         }
         .buttonStyle(.plain)
     }
@@ -524,9 +527,9 @@ struct CalendarEventCardView: View {
             // Если есть caseId, создаём временный LegalCase и показываем детали
             CaseDetailView(legalCase: LegalCase(
                 id: caseId,
-                title: event.title,
+                title: displayTitle,
                 value: event.title,
-                name: nil,
+                name: displayTitle,
                 description: nil,
                 isSouRaw: event.isSou,
                 createdAt: nil,
@@ -553,6 +556,20 @@ struct CalendarEventCardView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var normalizedSummary: String? {
+        guard let summary = event.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !summary.isEmpty else {
+            return nil
+        }
+
+        // If court/judge are rendered in dedicated rows, avoid repeating the same sentence.
+        if event.court != nil || event.judge != nil {
+            return nil
+        }
+
+        return summary
     }
 }
 
